@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Crosshair</string>
+    <string name="shortcut_short_label">Start Crosshair</string>
+    <string name="shortcut_long_label">Start Crosshair Overlay</string>
+    <string name="channel_name">Crosshair Service</string>
+    <string name="channel_description">Notification channel for crosshair overlay service</string>
+    <string name="notification_title">Crosshair running</string>
+    <string name="notification_text">Crosshair overlay is active</string>
+</resources>
