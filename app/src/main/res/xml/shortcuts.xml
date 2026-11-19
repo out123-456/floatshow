@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <shortcut
-        android:shortcutId="start_crosshair"
         android:enabled="true"
-        android:icon="@drawable/ic_shortcut"
-        android:shortcutShortLabel="@string/shortcut_short_label"
-        android:shortcutLongLabel="@string/shortcut_long_label">
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutId="toggle_crosshair"
+        android:shortcutLongLabel="@string/shortcut_long_label"
+        android:shortcutShortLabel="@string/shortcut_short_label">
         <intent
             android:action="android.intent.action.MAIN"
-            android:targetPackage="com.example.crosshair"
-            android:targetClass="com.example.crosshair.MainActivity" />
+            android:targetClass="com.qiqi.floatshow.MainActivity"
+            android:targetPackage="com.qiqi.floatshow" />
     </shortcut>
 </shortcuts>

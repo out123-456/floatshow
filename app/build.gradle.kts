@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.crosshair"
+    namespace = "com.qiqi.floatshow"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.crosshair"
+        applicationId = "com.qiqi.floatshow"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
@@ -52,6 +52,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.savedstate:savedstate-ktx:1.2.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

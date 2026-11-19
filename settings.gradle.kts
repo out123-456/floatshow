@@ -12,5 +12,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "CrosshairApp"
+rootProject.name = "floatshow"
 include(":app")

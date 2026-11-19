@@ -1,0 +1,81 @@
+package com.qiqi.floatshow.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.core.content.edit
+
+/**
+ * 全局设置的唯一读写入口.
+ * 悬浮窗 Service 监听 [SharedPreferences] 的变化`,因此设置页改动会即时生效.
+ */
+class SettingsRepository(context: Context) {
+
+    val prefs: SharedPreferences =
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    // ── 准星 ──────────────────────────────────────────────
+    var crosshairEnabled: Boolean
+        get() = prefs.getBoolean(KEY_CROSSHAIR_ENABLED, false)
+        set(v) = prefs.edit { putBoolean(KEY_CROSSHAIR_ENABLED, v) }
+
+    var crosshairImageUri: String?
+        get() = prefs.getString(KEY_CROSSHAIR_IMAGE, null)
+        set(v) = prefs.edit { putString(KEY_CROSSHAIR_IMAGE, v) }
+
+    var crosshairSize: Int
+        get() = prefs.getInt(KEY_CROSSHAIR_SIZE, DEFAULT_SIZE)
+        set(v) = prefs.edit { putInt(KEY_CROSSHAIR_SIZE, v) }
+
+    var crosshairOffsetX: Int
+        get() = prefs.getInt(KEY_CROSSHAIR_OFFSET_X, 0)
+        set(v) = prefs.edit { putInt(KEY_CROSSHAIR_OFFSET_X, v) }
+
+    var crosshairOffsetY: Int
+        get() = prefs.getInt(KEY_CROSSHAIR_OFFSET_Y, 0)
+        set(v) = prefs.edit { putInt(KEY_CROSSHAIR_OFFSET_Y, v) }
+
+    /** 是否把状态栏区域也算进垂直居中 */
+    var crosshairNotchMode: Boolean
+        get() = prefs.getBoolean(KEY_CROSSHAIR_NOTCH, false)
+        set(v) = prefs.edit { putBoolean(KEY_CROSSHAIR_NOTCH, v) }
+
+    /** 0f..1f`,直接对应 View 的 alpha */
+    var crosshairAlpha: Float
+        get() = prefs.getFloat(KEY_CROSSHAIR_ALPHA, 1f)
+        set(v) = prefs.edit { putFloat(KEY_CROSSHAIR_ALPHA, v) }
+
+    // ── 面板 ──────────────────────────────────────────────
+    var panelEnabled: Boolean
+        get() = prefs.getBoolean(KEY_PANEL_ENABLED, false)
+        set(v) = prefs.edit { putBoolean(KEY_PANEL_ENABLED, v) }
+
+    /** 面板左上角坐标(px)`,未初始化时为 [UNSET_POSITION] */
+    var panelX: Int
+        get() = prefs.getInt(KEY_PANEL_X, UNSET_POSITION)
+        set(v) = prefs.edit { putInt(KEY_PANEL_X, v) }
+
+    var panelY: Int
+        get() = prefs.getInt(KEY_PANEL_Y, UNSET_POSITION)
+        set(v) = prefs.edit { putInt(KEY_PANEL_Y, v) }
+
+    /** 任一层可见时服务就应存活 */
+    val anyOverlayEnabled: Boolean
+        get() = crosshairEnabled || panelEnabled
+
+    companion object {
+        const val PREFS_NAME = "floatshow_settings"
+        const val DEFAULT_SIZE = 40
+        const val UNSET_POSITION = -1
+
+        const val KEY_CROSSHAIR_ENABLED = "crosshair_enabled"
+        const val KEY_CROSSHAIR_IMAGE = "crosshair_image"
+        const val KEY_CROSSHAIR_SIZE = "crosshair_size"
+        const val KEY_CROSSHAIR_OFFSET_X = "crosshair_offset_x"
+        const val KEY_CROSSHAIR_OFFSET_Y = "crosshair_offset_y"
+        const val KEY_CROSSHAIR_NOTCH = "crosshair_notch"
+        const val KEY_CROSSHAIR_ALPHA = "crosshair_alpha"
+        const val KEY_PANEL_ENABLED = "panel_enabled"
+        const val KEY_PANEL_X = "panel_x"
+        const val KEY_PANEL_Y = "panel_y"
+    }
+}

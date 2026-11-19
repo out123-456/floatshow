@@ -1,10 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Crosshair</string>
-    <string name="shortcut_short_label">Start Crosshair</string>
-    <string name="shortcut_long_label">Start Crosshair Overlay</string>
-    <string name="channel_name">Crosshair Service</string>
-    <string name="channel_description">Notification channel for crosshair overlay service</string>
-    <string name="notification_title">Crosshair running</string>
-    <string name="notification_text">Crosshair overlay is active</string>
+    <string name="app_name">悬浮显示</string>
+
+    <string name="panel_title">悬浮面板</string>
+    <string name="panel_close">关闭面板</string>
+    <string name="panel_placeholder">内容区，下一步接图片 / Markdown</string>
+
+    <string name="channel_name">悬浮显示</string>
+    <string name="channel_description">保持悬浮层在后台运行</string>
+    <string name="notification_title">悬浮显示运行中</string>
+    <string name="notification_text">点按调整设置</string>
+
+    <string name="permission_overlay_title">悬浮窗权限</string>
+    <string name="permission_overlay_desc">需要在其它应用之上显示准星和面板</string>
+    <string name="permission_overlay_action">去开启</string>
+    <string name="permission_notification_title">通知权限</string>
+    <string name="permission_notification_desc">Android 13 起需要允许通知，前台服务才不容易被系统回收</string>
+    <string name="permission_notification_action">允许</string>
+
+    <string name="section_crosshair">准星</string>
+    <string name="section_crosshair_desc">屏幕中心叠加准星，点击穿透不挡操作</string>
+    <string name="crosshair_image">准星图片</string>
+    <string name="crosshair_select_image">选择图片</string>
+    <string name="crosshair_reset_image">恢复默认圆点</string>
+    <string name="crosshair_size">大小</string>
+    <string name="crosshair_offset_x">水平偏移</string>
+    <string name="crosshair_offset_y">垂直偏移</string>
+    <string name="crosshair_alpha">不透明度</string>
+    <string name="crosshair_notch">刘海模式</string>
+    <string name="crosshair_notch_desc">把状态栏区域也算进垂直居中</string>
+
+    <string name="section_panel">悬浮面板</string>
+    <string name="section_panel_desc">可拖动的内容面板，拖标题栏移动，右上角关闭</string>
+
+    <string name="tile_label">准星开关</string>
+
+    <string name="shortcut_short_label">开准星</string>
+    <string name="shortcut_long_label">在屏幕中心显示准星</string>
 </resources>

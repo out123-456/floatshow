@@ -1,4 +1,4 @@
-package com.example.crosshair.ui.theme
+package com.qiqi.floatshow.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -10,20 +10,20 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+private val DarkScheme = darkColorScheme(
+    primary = PrimaryDark,
+    secondary = SecondaryDark,
+    tertiary = TertiaryDark
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+private val LightScheme = lightColorScheme(
+    primary = PrimaryLight,
+    secondary = SecondaryLight,
+    tertiary = TertiaryLight
 )
 
 @Composable
-fun CrosshairTheme(
+fun FloatshowTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
@@ -33,8 +33,8 @@ fun CrosshairTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+        darkTheme -> DarkScheme
+        else -> LightScheme
     }
 
     MaterialTheme(
