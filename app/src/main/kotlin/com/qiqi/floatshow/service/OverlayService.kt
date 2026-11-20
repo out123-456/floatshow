@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ComponentCallbacks
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -53,6 +54,15 @@ class OverlayService : Service() {
     private val prefsListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> scheduleSync() }
 
+    /**
+     * Service 不会像 Activity 那样自动收到配置变化, 必须自己注册.
+     * 旋转后准星要重新居中, 面板位置也要重新约束.
+     */
+    private val configCallbacks = object : ComponentCallbacks {
+        override fun onConfigurationChanged(newConfig: Configuration) = sync()
+        override fun onLowMemory() = Unit
+    }
+
     override fun onCreate() {
         super.onCreate()
         // 先声明前台: 系统只给 5 秒, 其它初始化都排在它后面, 慢了会直接 RemoteServiceException 崩掉
@@ -61,6 +71,7 @@ class OverlayService : Service() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         settings = SettingsRepository(this)
         lifecycleOwner.start()
+        registerComponentCallbacks(configCallbacks)
     }
 
     private fun startForegroundCompat() {
@@ -84,15 +95,9 @@ class OverlayService : Service() {
         return START_STICKY
     }
 
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        // 屏幕旋转后准星要重新居中
-        removeCrosshair()
-        sync()
-    }
-
     override fun onDestroy() {
         handler.removeCallbacks(resyncRunnable)
+        unregisterComponentCallbacks(configCallbacks)
         settings.prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
         removeCrosshair()
         panel?.remove()

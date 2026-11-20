@@ -42,7 +42,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -51,6 +53,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.qiqi.floatshow.R
 import com.qiqi.floatshow.data.SettingsRepository
 import com.qiqi.floatshow.service.OverlayService
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,9 +72,15 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     }
 
-    val metrics = context.resources.displayMetrics
-    val screenWidth = metrics.widthPixels
-    val screenHeight = metrics.heightPixels
+    // 跟着配置走, 旋转后偏移范围自动更新
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val screenWidth = remember(configuration, density) {
+        (configuration.screenWidthDp * density.density).roundToInt()
+    }
+    val screenHeight = remember(configuration, density) {
+        (configuration.screenHeightDp * density.density).roundToInt()
+    }
 
     fun refreshService() {
         if (settings.anyOverlayEnabled) {
