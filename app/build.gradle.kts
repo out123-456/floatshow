@@ -11,8 +11,8 @@ android {
         applicationId = "com.qiqi.floatshow"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     buildTypes {
@@ -54,6 +54,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.savedstate:savedstate-ktx:1.2.1")
+    // SVG 渲染: Apache-2.0, 无传递依赖 (~220KB)
+    implementation("com.caverock:androidsvg-aar:1.4")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
