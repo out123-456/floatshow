@@ -55,6 +55,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.qiqi.floatshow.R
 import com.qiqi.floatshow.data.SettingsRepository
 import com.qiqi.floatshow.service.OverlayService
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -85,7 +86,10 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         (configuration.screenHeightDp * density.density).roundToInt()
     }
 
-    fun refreshService() {
+    // 开关只写设置. 服务启停由下面这个效果统一处理, 并且延迟一点:
+    // 快速连点开关时若每次都 start/stop, startForegroundService 的 5 秒会被 stopService 吃掉, 系统直接崩应用
+    LaunchedEffect(crosshairEnabled, panelEnabled, hasOverlayPermission) {
+        delay(SERVICE_DEBOUNCE_MS)
         if (settings.anyOverlayEnabled) {
             if (hasOverlayPermission) OverlayService.start(context)
         } else {
@@ -102,10 +106,6 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    LaunchedEffect(hasOverlayPermission) {
-        if (hasOverlayPermission) refreshService()
     }
 
     val imagePicker = rememberLauncherForActivityResult(
@@ -188,7 +188,6 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 onEnabledChange = {
                     crosshairEnabled = it
                     settings.crosshairEnabled = it
-                    refreshService()
                 },
                 hasImage = hasImage,
                 onPickImage = { imagePicker.launch(arrayOf("image/*")) },
@@ -221,7 +220,6 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                             onCheckedChange = {
                                 panelEnabled = it
                                 settings.panelEnabled = it
-                                refreshService()
                             }
                         )
                     },
@@ -239,6 +237,9 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
 }
 
 /** Android 13 起看权限, 更早的版本看通知开关 */
+/** 服务启停的去抖时间 */
+private const val SERVICE_DEBOUNCE_MS = 250L
+
 private fun notificationsEnabled(context: android.content.Context): Boolean =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
