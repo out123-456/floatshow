@@ -1,5 +1,10 @@
 package com.qiqi.floatshow.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -93,7 +98,11 @@ fun CrosshairSettingsCard(
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent)
             )
 
-            if (enabled) {
+            AnimatedVisibility(
+                visible = enabled,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
                 Column(
                     modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -118,7 +127,12 @@ fun CrosshairSettingsCard(
                                 colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                             )
 
-                            if (hasImage) {
+                            AnimatedVisibility(
+                                visible = hasImage,
+                                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+                            ) {
+                              Column {
                                 Divider(
                                     modifier = Modifier.padding(horizontal = 16.dp),
                                     color = MaterialTheme.colorScheme.outline,
@@ -153,6 +167,7 @@ fun CrosshairSettingsCard(
                                         settings.crosshairFlipV = it
                                     }
                                 )
+                              }
                             }
                         }
                     }
