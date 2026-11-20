@@ -135,6 +135,7 @@ class OverlayService : Service() {
         val view = crosshairView ?: CrosshairView(this).also {
             crosshairView = it
             it.onLoadFailed = { notifyImageFailed() }
+            it.onLoaded = { scheduleSync() }
         }
         val size = settings.crosshairSize.coerceIn(SettingsRepository.MIN_SIZE, SettingsRepository.MAX_SIZE)
         view.setSize(size)

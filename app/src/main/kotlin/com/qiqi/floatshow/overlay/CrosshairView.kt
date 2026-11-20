@@ -39,6 +39,8 @@ class CrosshairView(context: Context) : View(context) {
     private var uriKey: String? = null
     /** 图片/SVG 读取失败时通知外部(主线程回调) */
     var onLoadFailed: ((String) -> Unit)? = null
+    /** 异步加载完成后通知外部重算窗口尺寸(解码前按 1:1 开的窗口, 非方图会被裁) */
+    var onLoaded: (() -> Unit)? = null
     private var rotation = 0f
     private var flipH = false
     private var flipV = false
@@ -134,8 +136,14 @@ class CrosshairView(context: Context) : View(context) {
                 vectorAspect = loadedAspect
                 requestLayout()
                 invalidate()
+                android.util.Log.i(
+                    "CrosshairView",
+                    "加载完成 svg=${loadedSvg != null} bitmap=${loadedBitmap != null} aspect=$loadedAspect"
+                )
                 if (loadedBitmap == null && loadedSvg == null) {
                     onLoadFailed?.invoke(uriString)
+                } else {
+                    onLoaded?.invoke()
                 }
             }
         }
