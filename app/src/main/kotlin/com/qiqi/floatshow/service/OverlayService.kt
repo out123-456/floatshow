@@ -52,9 +52,6 @@ class OverlayService : Service() {
         sync()
     }
 
-    /** 全关后等一会儿再自停: 连点开关时不至于反复重建服务 */
-    private val stopRunnable = Runnable { stopSelf() }
-
     private val prefsListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> scheduleSync() }
 
@@ -101,7 +98,6 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(resyncRunnable)
-        handler.removeCallbacks(stopRunnable)
         unregisterComponentCallbacks(configCallbacks)
         settings.prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
         removeCrosshair()
@@ -124,9 +120,7 @@ class OverlayService : Service() {
     private fun sync() {
         applyCrosshair()
         applyPanel()
-        // 收起时延时自停: 立刻 stopSelf 会让下一次 start 又要重建服务, 连点就是不停重建
-        handler.removeCallbacks(stopRunnable)
-        if (!settings.anyOverlayEnabled) handler.postDelayed(stopRunnable, STOP_DELAY_MS)
+        // 服务常驻: 前两种层全部收起也不自停, 只有被系统回收才结束, 下次开关不用重建
     }
 
     private fun applyCrosshair() {
@@ -310,9 +304,6 @@ class OverlayService : Service() {
 
         /** 合并设置变化的间隔(约一帧) */
         private const val SYNC_INTERVAL_MS = 16L
-
-        /** 全部关闭后服务多活一会儿, 避免连点导致服务反复销毁重建 */
-        private const val STOP_DELAY_MS = 3000L
 
         fun start(context: Context) {
             val intent = Intent(context, OverlayService::class.java).setAction(ACTION_START)
