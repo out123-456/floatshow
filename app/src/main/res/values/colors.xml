@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#6750A4</color>
+    <!-- 启动窗口背景, 取 MD3 surface 色, 避免冷启动白闪 -->
+    <color name="window_background">#FFFBFE</color>
 </resources>
