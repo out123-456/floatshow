@@ -3,10 +3,14 @@ package com.qiqi.floatshow.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Divider
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ListItem
@@ -32,8 +36,9 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * 准星段. 外层是普通 Card, 里面每一项各自一张 ElevatedCard, 用嵌套而不是分割线来分块.
- * 图片相关的旋转/镜像紧跟在图片项后面, 属于图片的子项.
+ * 准星段.
+ * 标题项直接放在外层 Card 里(不套卡片), 其余每项各自一张 ElevatedCard.
+ * 图片相关的选择/旋转/镜像合成一张卡片, 只有选过图才展开完整内容.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,195 +66,213 @@ fun CrosshairSettingsCard(
     val degreeFormat = stringResource(R.string.unit_degree_format)
 
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                ListItem(
-                    headlineContent = {
-                        Text(
-                            text = stringResource(R.string.section_crosshair),
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    },
-                    supportingContent = {
-                        Text(
-                            text = stringResource(R.string.section_crosshair_desc),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    trailingContent = {
-                        Switch(checked = enabled, onCheckedChange = onEnabledChange)
-                    },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                )
-            }
+        Column {
+            // 标题项不套卡片
+            ListItem(
+                headlineContent = {
+                    Text(
+                        text = stringResource(R.string.section_crosshair),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        text = stringResource(R.string.section_crosshair_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                trailingContent = {
+                    Switch(checked = enabled, onCheckedChange = onEnabledChange)
+                },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+            )
 
             if (enabled) {
-                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                text = stringResource(R.string.crosshair_image),
-                                style = MaterialTheme.typography.bodyLarge
+                Column(
+                    modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // 图片组: 选择 / 旋转 / 镜像 同在一张卡片
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column {
+                            ListItem(
+                                headlineContent = {
+                                    Text(
+                                        text = stringResource(R.string.crosshair_image),
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                },
+                                trailingContent = {
+                                    ImageActions(
+                                        hasImage = hasImage,
+                                        onResetImage = onResetImage,
+                                        onPickImage = onPickImage
+                                    )
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                             )
-                        },
-                        trailingContent = {
-                            ImageActions(
-                                hasImage = hasImage,
-                                onResetImage = onResetImage,
-                                onPickImage = onPickImage
-                            )
-                        },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                    )
-                }
 
-                // 图片的变换属于图片, 跟在图片项后面
-                if (hasImage) {
+                            if (hasImage) {
+                                Divider(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    color = MaterialTheme.colorScheme.outline,
+                                    thickness = 1.dp
+                                )
+                                // 旋转放在列表下方
+                                SettingSliderRow(
+                                    label = stringResource(R.string.crosshair_rotate),
+                                    value = rotation,
+                                    valueRange = 0f..SettingsRepository.MAX_ROTATION,
+                                    onChange = {
+                                        rotation = it
+                                        settings.crosshairRotation = it
+                                    },
+                                    format = {
+                                        String.format(
+                                            Locale.US,
+                                            degreeFormat,
+                                            it.roundToInt().toString()
+                                        )
+                                    }
+                                )
+                                MirrorRow(
+                                    flipH = flipH,
+                                    onFlipHChange = {
+                                        flipH = it
+                                        settings.crosshairFlipH = it
+                                    },
+                                    flipV = flipV,
+                                    onFlipVChange = {
+                                        flipV = it
+                                        settings.crosshairFlipV = it
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                         SettingSliderRow(
-                            label = stringResource(R.string.crosshair_rotate),
-                            value = rotation,
-                            valueRange = 0f..SettingsRepository.MAX_ROTATION,
+                            label = stringResource(R.string.crosshair_size),
+                            value = size,
+                            valueRange = SettingsRepository.MIN_SIZE..SettingsRepository.MAX_SIZE,
+                            sliderRange = SettingsRepository.MIN_SIZE..SettingsRepository.SIZE_SOFT_MAX,
+                            splitAt = SettingsRepository.SIZE_SOFT_MAX,
+                            snapTarget = SettingsRepository.SIZE_SOFT_MAX,
+                            snapTolerance = SettingsRepository.SIZE_SNAP_TOLERANCE,
                             onChange = {
-                                rotation = it
-                                settings.crosshairRotation = it
+                                size = it.roundToInt().toFloat()
+                                settings.crosshairSize = size
                             },
                             format = {
-                                String.format(Locale.US, degreeFormat, it.roundToInt().toString())
+                                String.format(Locale.US, pxFormat, it.roundToInt().toString())
                             }
                         )
                     }
+
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        SettingSliderRow(
+                            label = stringResource(R.string.crosshair_offset_x),
+                            value = offsetX,
+                            valueRange = -screenWidth.toFloat()..screenWidth.toFloat(),
+                            onChange = {
+                                offsetX = it
+                                settings.crosshairOffsetX = it.roundToInt()
+                            },
+                            format = { String.format(Locale.US, pxFormat, pixels(it, false)) }
+                        )
+                    }
+
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        SettingSliderRow(
+                            label = stringResource(R.string.crosshair_offset_y),
+                            value = offsetY,
+                            valueRange = -screenHeight.toFloat()..screenHeight.toFloat(),
+                            onChange = {
+                                offsetY = it
+                                settings.crosshairOffsetY = it.roundToInt()
+                            },
+                            format = { String.format(Locale.US, pxFormat, pixels(it, false)) }
+                        )
+                    }
+
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        SettingSliderRow(
+                            label = stringResource(R.string.crosshair_alpha),
+                            value = alphaPercent,
+                            valueRange = 0f..100f,
+                            onChange = {
+                                alphaPercent = it
+                                settings.crosshairAlpha = it / 100f
+                            },
+                            format = {
+                                String.format(
+                                    Locale.US,
+                                    percentFormat,
+                                    it.roundToInt().toString()
+                                )
+                            }
+                        )
+                    }
+
                     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                         ListItem(
                             headlineContent = {
                                 Text(
-                                    text = stringResource(R.string.crosshair_flip_h),
+                                    text = stringResource(R.string.crosshair_notch),
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                             },
                             supportingContent = {
                                 Text(
-                                    text = stringResource(R.string.crosshair_transform_desc),
+                                    text = stringResource(R.string.crosshair_notch_desc),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             },
                             trailingContent = {
-                                Switch(checked = flipH, onCheckedChange = {
-                                    flipH = it
-                                    settings.crosshairFlipH = it
+                                Switch(checked = notch, onCheckedChange = {
+                                    notch = it
+                                    settings.crosshairNotchMode = it
                                 })
                             },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                         )
                     }
-                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                        ListItem(
-                            headlineContent = {
-                                Text(
-                                    text = stringResource(R.string.crosshair_flip_v),
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                            },
-                            trailingContent = {
-                                Switch(checked = flipV, onCheckedChange = {
-                                    flipV = it
-                                    settings.crosshairFlipV = it
-                                })
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                        )
-                    }
-                }
-
-                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    SettingSliderRow(
-                        label = stringResource(R.string.crosshair_size),
-                        value = size,
-                        valueRange = SettingsRepository.MIN_SIZE..SettingsRepository.MAX_SIZE,
-                        sliderRange = SettingsRepository.MIN_SIZE..SettingsRepository.SIZE_SOFT_MAX,
-                        splitAt = SettingsRepository.SIZE_SOFT_MAX,
-                        snapTarget = SettingsRepository.SIZE_SOFT_MAX,
-                        snapTolerance = SettingsRepository.SIZE_SNAP_TOLERANCE,
-                        onChange = {
-                            size = it.roundToInt().toFloat()
-                            settings.crosshairSize = size
-                        },
-                        format = { String.format(Locale.US, pxFormat, it.roundToInt().toString()) }
-                    )
-                }
-
-                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    SettingSliderRow(
-                        label = stringResource(R.string.crosshair_offset_x),
-                        value = offsetX,
-                        valueRange = -screenWidth.toFloat()..screenWidth.toFloat(),
-                        onChange = {
-                            offsetX = it
-                            settings.crosshairOffsetX = it.roundToInt()
-                        },
-                        format = { String.format(Locale.US, pxFormat, pixels(it, false)) }
-                    )
-                }
-
-                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    SettingSliderRow(
-                        label = stringResource(R.string.crosshair_offset_y),
-                        value = offsetY,
-                        valueRange = -screenHeight.toFloat()..screenHeight.toFloat(),
-                        onChange = {
-                            offsetY = it
-                            settings.crosshairOffsetY = it.roundToInt()
-                        },
-                        format = { String.format(Locale.US, pxFormat, pixels(it, false)) }
-                    )
-                }
-
-                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    SettingSliderRow(
-                        label = stringResource(R.string.crosshair_alpha),
-                        value = alphaPercent,
-                        valueRange = 0f..100f,
-                        onChange = {
-                            alphaPercent = it
-                            settings.crosshairAlpha = it / 100f
-                        },
-                        format = {
-                            String.format(Locale.US, percentFormat, it.roundToInt().toString())
-                        }
-                    )
-                }
-
-                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                text = stringResource(R.string.crosshair_notch),
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                        },
-                        supportingContent = {
-                            Text(
-                                text = stringResource(R.string.crosshair_notch_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        },
-                        trailingContent = {
-                            Switch(checked = notch, onCheckedChange = {
-                                notch = it
-                                settings.crosshairNotchMode = it
-                            })
-                        },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                    )
                 }
             }
         }
+    }
+}
+
+/** 镜像: 水平/垂直两个复选框排在同一行 */
+@Composable
+private fun MirrorRow(
+    flipH: Boolean,
+    onFlipHChange: (Boolean) -> Unit,
+    flipV: Boolean,
+    onFlipVChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = stringResource(R.string.crosshair_flip_h),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
+        )
+        Checkbox(checked = flipH, onCheckedChange = onFlipHChange)
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = stringResource(R.string.crosshair_flip_v),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
+        )
+        Checkbox(checked = flipV, onCheckedChange = onFlipVChange)
     }
 }
 
