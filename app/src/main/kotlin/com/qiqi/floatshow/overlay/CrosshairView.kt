@@ -187,6 +187,7 @@ class CrosshairView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val bmp = bitmap
+        val pic = vector
         val cx = pixelWidth / 2f
         val cy = pixelHeight / 2f
         val w = contentWidth
@@ -197,7 +198,7 @@ class CrosshairView(context: Context) : View(context) {
         canvas.scale(if (flipH) -1f else 1f, if (flipV) -1f else 1f, cx, cy)
         when {
             bmp != null -> canvas.drawBitmap(bmp, null, rect, null)
-            vector != null -> canvas.drawPicture(vector, rect)
+            pic != null -> canvas.drawPicture(pic, rect)
             else -> canvas.drawCircle(cx, cy, w / 2f, fallbackPaint)
         }
         canvas.restore()
