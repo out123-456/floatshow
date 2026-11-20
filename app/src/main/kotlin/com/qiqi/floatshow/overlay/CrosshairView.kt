@@ -8,6 +8,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -29,6 +31,8 @@ class CrosshairView(context: Context) : View(context) {
     private var rotation = 0f
     private var flipH = false
     private var flipV = false
+
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val fallbackPaint = Paint().apply {
         color = Color.WHITE
@@ -69,13 +73,29 @@ class CrosshairView(context: Context) : View(context) {
         invalidate()
     }
 
-    /** uri 为 null 时回退到默认圆点; 同一个 uri 重复设置不会重新解码 */
+    /**
+     * uri 为 null 时回退到默认圆点; 同一个 uri 重复设置不会重新解码.
+     * 解码放后台线程, 大图不至于把主线程 (和服务启动) 卡住.
+     */
     fun setImage(uriString: String?) {
         if (uriKey == uriString) return
         uriKey = uriString
-        bitmap = uriString?.let { decode(Uri.parse(it)) }
-        requestLayout()
-        invalidate()
+        if (uriString == null) {
+            bitmap = null
+            requestLayout()
+            invalidate()
+            return
+        }
+        Thread {
+            val decoded = decode(Uri.parse(uriString))
+            mainHandler.post {
+                // 解码期间 uri 又被换掉了, 这批结果作废
+                if (uriKey != uriString) return@post
+                bitmap = decoded
+                requestLayout()
+                invalidate()
+            }
+        }.start()
     }
 
     fun setTransform(rotationDeg: Float, flipHorizontal: Boolean, flipVertical: Boolean) {

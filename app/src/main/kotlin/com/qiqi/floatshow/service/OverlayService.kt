@@ -55,11 +55,12 @@ class OverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // 先声明前台: 系统只给 5 秒, 其它初始化都排在它后面, 慢了会直接 RemoteServiceException 崩掉
+        createNotificationChannel()
+        startForegroundCompat()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         settings = SettingsRepository(this)
         lifecycleOwner.start()
-        createNotificationChannel()
-        startForegroundCompat()
     }
 
     private fun startForegroundCompat() {
@@ -77,6 +78,8 @@ class OverlayService : Service() {
             return START_NOT_STICKY
         }
         settings.prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+        // 兜底: 被系统重启或重复 start 时也保证处于前台状态
+        startForegroundCompat()
         sync()
         return START_STICKY
     }
