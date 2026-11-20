@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Picture
 import android.graphics.RectF
 import android.net.Uri
 import android.os.Handler
@@ -30,7 +31,9 @@ class CrosshairView(context: Context) : View(context) {
 
     private var size: Float = 4f
     private var bitmap: Bitmap? = null
-    private var vector: SVG? = null
+    /** SVG 预渲染成的矢量 Picture`,绘制时按目标矩形缩放, 尺寸完全由 rect 决定 */
+    private var vector: Picture? = null
+    private var vectorAspect = 1f
     /** 已经加载的 uri`,用于避免每次设置变化都重新解码(这是后台性能的最大开销) */
     @Volatile
     private var uriKey: String? = null
@@ -62,19 +65,8 @@ class CrosshairView(context: Context) : View(context) {
         if (bmp != null) {
             return if (bmp.width <= 0) 1f else bmp.height.toFloat() / bmp.width.toFloat()
         }
-        val doc = vector ?: return 1f
-        return svgAspect(doc)
-    }
-
-    /** SVG 可能只给 viewBox 没有 width/height, 两种都得能算出比例 */
-    private fun svgAspect(doc: SVG): Float {
-        val w = doc.documentWidth
-        val h = doc.documentHeight
-        if (w > 0f && h > 0f) return h / w
-        val ratio = runCatching { doc.documentAspectRatio }.getOrDefault(-1f)
-        if (ratio > 0f) return 1f / ratio
-        val box = runCatching { doc.documentViewBox }.getOrNull() ?: return 1f
-        return if (box.width() > 0f) box.height() / box.width() else 1f
+        if (vector != null) return vectorAspect
+        return 1f
     }
 
     /** 旋转后的包围盒尺寸(浮点)`,窗口要按它开才能不裁角 */
@@ -120,9 +112,17 @@ class CrosshairView(context: Context) : View(context) {
             if (uriKey != uriString) return@execute
             val uri = Uri.parse(uriString)
             var loadedBitmap: Bitmap? = null
-            var loadedSvg: SVG? = null
+            var loadedSvg: Picture? = null
+            var loadedAspect = 1f
             if (isSvg(uri)) {
-                loadedSvg = decodeSvg(uri)
+                val doc = decodeSvg(uri)
+                if (doc != null) {
+                    loadedAspect = svgAspect(doc)
+                    loadedSvg = doc.renderToPicture(
+                        pictureWidth(loadedAspect),
+                        pictureHeight(loadedAspect)
+                    )
+                }
             } else {
                 loadedBitmap = decodeBitmap(uri)
             }
@@ -131,6 +131,7 @@ class CrosshairView(context: Context) : View(context) {
                 if (uriKey != uriString) return@post
                 bitmap = loadedBitmap
                 vector = loadedSvg
+                vectorAspect = loadedAspect
                 requestLayout()
                 invalidate()
                 if (loadedBitmap == null && loadedSvg == null) {
@@ -186,7 +187,6 @@ class CrosshairView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val bmp = bitmap
-        val doc = vector
         val cx = pixelWidth / 2f
         val cy = pixelHeight / 2f
         val w = contentWidth
@@ -197,16 +197,30 @@ class CrosshairView(context: Context) : View(context) {
         canvas.scale(if (flipH) -1f else 1f, if (flipV) -1f else 1f, cx, cy)
         when {
             bmp != null -> canvas.drawBitmap(bmp, null, rect, null)
-            doc != null -> drawVector(canvas, doc, rect)
+            vector != null -> canvas.drawPicture(vector, rect)
             else -> canvas.drawCircle(cx, cy, w / 2f, fallbackPaint)
         }
         canvas.restore()
     }
 
-    /** SVG 是矢量的, 直接画进目标矩形(内部按 viewBox 适配), 不生成位图 */
-    private fun drawVector(canvas: Canvas, doc: SVG, rect: RectF) {
-        doc.renderToCanvas(canvas, rect)
+    /** viewBox 优先: 只给 viewBox 没有 width/height 的文件也能算比例 */
+    private fun svgAspect(doc: SVG): Float {
+        val box = runCatching { doc.documentViewBox }.getOrNull()
+        if (box != null && box.width() > 0f && box.height() > 0f) return box.height() / box.width()
+        val w = doc.documentWidth
+        val h = doc.documentHeight
+        if (w > 0f && h > 0f) return h / w
+        val ratio = runCatching { doc.documentAspectRatio }.getOrDefault(-1f)
+        if (ratio > 0f) return 1f / ratio
+        return 1f
     }
+
+    /** Picture 的比例要和内容一致, 否则拉伸到目标矩形会留边 */
+    private fun pictureWidth(aspect: Float): Int =
+        if (aspect >= 1f) (SVG_PICTURE_SIZE / aspect).toInt().coerceAtLeast(1) else SVG_PICTURE_SIZE
+
+    private fun pictureHeight(aspect: Float): Int =
+        if (aspect >= 1f) SVG_PICTURE_SIZE else (SVG_PICTURE_SIZE * aspect).toInt().coerceAtLeast(1)
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
@@ -218,5 +232,8 @@ class CrosshairView(context: Context) : View(context) {
 
     private companion object {
         const val MIME_SVG = "image/svg+xml"
+
+        /** SVG 先渲染到这个尺寸的 Picture, 缩放绘制时仍是矢量 */
+        const val SVG_PICTURE_SIZE = 1024
     }
 }
