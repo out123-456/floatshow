@@ -3,6 +3,7 @@ package com.qiqi.floatshow.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.core.app.NotificationManagerCompat
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.Button
@@ -66,6 +68,7 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
     var crosshairEnabled by remember { mutableStateOf(settings.crosshairEnabled) }
     var panelEnabled by remember { mutableStateOf(settings.panelEnabled) }
     var hasImage by remember { mutableStateOf(settings.crosshairImageUri != null) }
+    var notificationsAllowed by remember { mutableStateOf(notificationsEnabled(context)) }
 
     // 用可调试标记代替 BuildConfig: 不生成 Java 源, 也就不触发 JdkImageTransform
     val debuggable = remember(context) {
@@ -94,6 +97,7 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 hasOverlayPermission = Settings.canDrawOverlays(context)
+                notificationsAllowed = notificationsEnabled(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -121,7 +125,9 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
 
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { }
+    ) {
+        notificationsAllowed = notificationsEnabled(context)
+    }
 
     Scaffold(
         topBar = {
@@ -165,7 +171,7 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 )
             }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !notificationsAllowed) {
                 PermissionCard(
                     title = stringResource(R.string.permission_notification_title),
                     description = stringResource(R.string.permission_notification_desc),
@@ -231,6 +237,15 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         }
     }
 }
+
+/** Android 13 起看权限, 更早的版本看通知开关 */
+private fun notificationsEnabled(context: android.content.Context): Boolean =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+    } else {
+        NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
 
 @Composable
 private fun PermissionCard(
