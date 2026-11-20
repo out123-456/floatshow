@@ -83,7 +83,7 @@ class SettingsRepository(context: Context) {
 
     companion object {
         const val PREFS_NAME = "floatshow_settings"
-        const val DEFAULT_SIZE = 100f
+        const val DEFAULT_SIZE = 4f
         const val MIN_SIZE = 1f
 
         /** 滑条默认上限`,输入更大时滑条上限临时跟着扩展 */
