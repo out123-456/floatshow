@@ -26,10 +26,9 @@ class OverlayTileService : TileService() {
         val enabled = !settings.crosshairEnabled
         settings.crosshairEnabled = enabled
 
+        // 只负责启动. 关闭交给 Service 自己延时自停, 磁贴发 stopService 同样会掐断 startForeground
         if (settings.anyOverlayEnabled && Settings.canDrawOverlays(this)) {
             OverlayService.start(this)
-        } else if (!settings.anyOverlayEnabled) {
-            OverlayService.stop(this)
         }
 
         qsTile?.apply {
