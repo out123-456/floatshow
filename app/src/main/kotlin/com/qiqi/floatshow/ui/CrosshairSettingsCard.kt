@@ -1,6 +1,11 @@
 package com.qiqi.floatshow.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -246,7 +251,7 @@ fun CrosshairSettingsCard(
     }
 }
 
-/** 镜像: 水平/垂直两个复选框排在同一行 */
+/** 镜像: 水平/垂直两个复选框同一行, 复选框紧贴文字, 中间用竖线隔开 */
 @Composable
 private fun MirrorRow(
     flipH: Boolean,
@@ -257,22 +262,49 @@ private fun MirrorRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 8.dp, bottom = 8.dp),
+            .padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = stringResource(R.string.crosshair_flip_h),
-            style = MaterialTheme.typography.bodyMedium,
+        MirrorOption(
+            label = stringResource(R.string.crosshair_flip_h),
+            checked = flipH,
+            onCheckedChange = onFlipHChange,
             modifier = Modifier.weight(1f)
         )
-        Checkbox(checked = flipH, onCheckedChange = onFlipHChange)
-        Spacer(Modifier.width(4.dp))
-        Text(
-            text = stringResource(R.string.crosshair_flip_v),
-            style = MaterialTheme.typography.bodyMedium,
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .height(24.dp)
+                .background(MaterialTheme.colorScheme.outline)
+        )
+        MirrorOption(
+            label = stringResource(R.string.crosshair_flip_v),
+            checked = flipV,
+            onCheckedChange = onFlipVChange,
             modifier = Modifier.weight(1f)
         )
-        Checkbox(checked = flipV, onCheckedChange = onFlipVChange)
+    }
+}
+
+@Composable
+private fun MirrorOption(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.toggleable(
+            value = checked,
+            role = Role.Checkbox,
+            onValueChange = onCheckedChange
+        ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Checkbox(checked = checked, onCheckedChange = null)
+        Spacer(Modifier.width(8.dp))
+        Text(text = label, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
