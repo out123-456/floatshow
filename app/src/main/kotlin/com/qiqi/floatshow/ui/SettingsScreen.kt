@@ -2,6 +2,7 @@ package com.qiqi.floatshow.ui
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -47,7 +48,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.qiqi.floatshow.BuildConfig
 import com.qiqi.floatshow.R
 import com.qiqi.floatshow.data.SettingsRepository
 import com.qiqi.floatshow.service.OverlayService
@@ -63,6 +63,11 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
     var crosshairEnabled by remember { mutableStateOf(settings.crosshairEnabled) }
     var panelEnabled by remember { mutableStateOf(settings.panelEnabled) }
     var hasImage by remember { mutableStateOf(settings.crosshairImageUri != null) }
+
+    // 用可调试标记代替 BuildConfig: 不生成 Java 源, 也就不触发 JdkImageTransform
+    val debuggable = remember(context) {
+        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    }
 
     val metrics = context.resources.displayMetrics
     val screenWidth = metrics.widthPixels
@@ -115,7 +120,7 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
                     // 设计预览页只在 debug 构建里留入口
-                    if (BuildConfig.DEBUG) {
+                    if (debuggable) {
                         IconButton(onClick = onOpenLab) {
                             Icon(
                                 imageVector = Icons.Filled.Palette,

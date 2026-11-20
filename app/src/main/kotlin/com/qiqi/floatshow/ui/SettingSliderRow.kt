@@ -14,7 +14,10 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,8 +57,19 @@ fun SettingSliderRow(
     var showDialog by remember { mutableStateOf(false) }
 
     val low = sliderRange.start
+    // 上限由"松开时的值"决定: 拖动过程中锁死, 否则映射会跟着手指自激抖动
     val high = maxOf(sliderRange.endInclusive, value).coerceAtMost(valueRange.endInclusive)
-    val position = toPosition(value, low, high, splitAt)
+    var dragging by remember { mutableStateOf(false) }
+    var dragHigh by remember { mutableFloatStateOf(high) }
+    var dragPosition by remember { mutableFloatStateOf(toPosition(value, low, high, splitAt)) }
+    var lastValue by remember { mutableFloatStateOf(value) }
+
+    val idlePosition = toPosition(value, low, high, splitAt)
+    val position by animateFloatAsState(
+        targetValue = if (dragging) dragPosition else idlePosition,
+        animationSpec = tween(durationMillis = 220),
+        label = "slider-position"
+    )
 
     Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -77,14 +91,23 @@ fun SettingSliderRow(
         Slider(
             value = position,
             onValueChange = { raw ->
-                val dragged = fromPosition(raw, low, high, splitAt)
-                val snapped =
-                    if (snapTarget != null && abs(dragged - snapTarget) <= snapTolerance) {
-                        snapTarget
-                    } else {
-                        dragged
-                    }
-                onChange(snapped.coerceIn(low, high))
+                if (!dragging) {
+                    dragging = true
+                    dragHigh = high
+                }
+                dragPosition = raw
+                val dragged = fromPosition(raw, low, dragHigh, splitAt)
+                val clamped = dragged.coerceIn(low, dragHigh)
+                lastValue = if (allowDecimal) clamped else clamped.toInt().toFloat()
+                onChange(lastValue)
+            },
+            onValueChangeFinished = {
+                dragging = false
+                // 松手才吸附, 松开后动画回弹到吸附位置
+                if (snapTarget != null && abs(lastValue - snapTarget) <= snapTolerance) {
+                    lastValue = snapTarget
+                    onChange(snapTarget)
+                }
             },
             valueRange = 0f..1f
         )
