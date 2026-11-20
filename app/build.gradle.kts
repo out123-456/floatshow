@@ -11,12 +11,14 @@ android {
         applicationId = "com.qiqi.floatshow"
         minSdk = 26
         targetSdk = 34
-        versionCode = 27
-        versionName = "1.27"
+        versionCode = 28
+        versionName = "1.28"
     }
 
     buildTypes {
         release {
+            // 个人使用: 沿用 debug 密钥签名, 与已装的 debug 包同签名, 可直接覆盖安装
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
