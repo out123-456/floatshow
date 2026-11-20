@@ -4,6 +4,8 @@
 
     <string name="panel_title">悬浮面板</string>
     <string name="panel_close">关闭面板</string>
+    <string name="panel_minimize">收缩为悬浮球</string>
+    <string name="panel_ball_desc">悬浮球, 点按展开面板</string>
     <string name="panel_placeholder">内容区，下一步接图片 / Markdown</string>
 
     <string name="channel_name">悬浮显示</string>
