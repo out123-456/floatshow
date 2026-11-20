@@ -1,5 +1,7 @@
 package com.qiqi.floatshow.ui
 
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -56,6 +58,18 @@ fun SettingSliderRow(
     var dragHigh by remember { mutableFloatStateOf(high) }
     var position by remember { mutableFloatStateOf(toPosition(value, low, high, splitAt)) }
 
+    // M3 的 Slider 用 onValueChangeFinished 当 remember 的 key: 每次重组换新 lambda 会重建
+    // SliderState, 手势被打断(表现为点到哪停在哪). 这里用稳定引用 + 最新实现.
+    val focusManager = LocalFocusManager.current
+    val finishAction: () -> Unit = {
+        dragging = false
+        if (snapTarget != null && abs(value - snapTarget) <= snapTolerance) {
+            onChange(snapTarget)
+        }
+    }
+    val latestFinish by rememberUpdatedState(finishAction)
+    val stableFinish = remember { { latestFinish() } }
+
     // 外部值变了(输入框、重置)且不在拖动, 就把滑块挪过去
     LaunchedEffect(value, low, high, splitAt, dragging) {
         if (!dragging) position = toPosition(value, low, high, splitAt)
@@ -90,18 +104,14 @@ fun SettingSliderRow(
                     if (!dragging) {
                         dragging = true
                         dragHigh = high
+                        focusManager.clearFocus()
                     }
                     position = raw
                     val dragged = fromPosition(raw, low, dragHigh, splitAt)
                     val clamped = dragged.coerceIn(low, dragHigh)
                     onChange(if (allowDecimal) clamped else clamped.roundToInt().toFloat())
                 },
-                onValueChangeFinished = {
-                    dragging = false
-                    if (snapTarget != null && abs(value - snapTarget) <= snapTolerance) {
-                        onChange(snapTarget)
-                    }
-                },
+                onValueChangeFinished = stableFinish,
                 valueRange = 0f..1f,
                 modifier = Modifier.weight(1f)
             )
