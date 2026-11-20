@@ -120,10 +120,13 @@ class CrosshairView(context: Context) : View(context) {
                 val doc = decodeSvg(uri)
                 if (doc != null) {
                     loadedAspect = svgAspect(doc)
-                    loadedSvg = doc.renderToPicture(
-                        pictureWidth(loadedAspect),
-                        pictureHeight(loadedAspect)
-                    )
+                    val pw = pictureWidth(loadedAspect)
+                    val ph = pictureHeight(loadedAspect)
+                    // 根节点写了 width/height 时, 渲染器会用它覆盖传入的视口, 图只画在左上角一小块.
+                    // 把文档宽高改成 Picture 尺寸, viewBox 仍按比例铺满整张 Picture.
+                    doc.setDocumentWidth(pw.toFloat())
+                    doc.setDocumentHeight(ph.toFloat())
+                    loadedSvg = doc.renderToPicture(pw, ph)
                 }
             } else {
                 loadedBitmap = decodeBitmap(uri)
