@@ -32,6 +32,8 @@ class PanelWindow(
     /** 拖动时的亚像素累积`,避免小步拖动被取整吃掉 */
     private var accX = 0f
     private var accY = 0f
+    /** 本帧是否已经有待执行的移动`,保证一帧最多一次 updateViewLayout */
+    private var framePending = false
 
     val isShowing: Boolean get() = view != null
 
@@ -64,7 +66,10 @@ class PanelWindow(
                     OverlayPanelContent(
                         maxWidthDp = maxWidthDp,
                         onDragDelta = ::moveBy,
-                        onDragEnd = { onMoved(params?.x ?: initialX, params?.y ?: initialY) },
+                        onDragEnd = {
+                            val (x, y) = flush()
+                            onMoved(x, y)
+                        },
                         onClose = onClosed
                     )
                 }
@@ -76,10 +81,35 @@ class PanelWindow(
         view = composeView
     }
 
+    /**
+     * 拖动回调可能一帧来好几次, 这里只累积位移, 每帧合并成一次 updateViewLayout.
+     * WindowManager 是跨进程调用, 一帧调多次就是拖动卡顿的来源.
+     */
     fun moveBy(dx: Float, dy: Float) {
-        val p = params ?: return
+        val v = view ?: return
         accX += dx
         accY += dy
+        if (framePending) return
+        framePending = true
+        v.postOnAnimation(moveRunnable)
+    }
+
+    private val moveRunnable = Runnable {
+        framePending = false
+        applyMove()
+    }
+
+    /** 把累积位移真正写进窗口参数`,返回松手时的坐标 */
+    fun flush(): Pair<Int, Int> {
+        view?.removeCallbacks(moveRunnable)
+        framePending = false
+        applyMove()
+        return (params?.x ?: 0) to (params?.y ?: 0)
+    }
+
+    private fun applyMove() {
+        val p = params ?: return
+        val v = view ?: return
         val stepX = accX.toInt()
         val stepY = accY.toInt()
         if (stepX == 0 && stepY == 0) return
@@ -87,11 +117,12 @@ class PanelWindow(
         accY -= stepY
         p.x += stepX
         p.y += stepY
-        windowManager.updateViewLayout(view, p)
+        runCatching { windowManager.updateViewLayout(v, p) }
     }
 
     fun remove() {
         view?.let { runCatching { windowManager.removeView(it) } }
+        view?.removeCallbacks(moveRunnable)
         view = null
         params = null
     }
