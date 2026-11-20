@@ -1,14 +1,13 @@
 package com.qiqi.floatshow.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Divider
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -32,6 +31,10 @@ import com.qiqi.floatshow.data.SettingsRepository
 import java.util.Locale
 import kotlin.math.roundToInt
 
+/**
+ * 准星段. 外层是普通 Card, 里面每一项各自一张 ElevatedCard, 用嵌套而不是分割线来分块.
+ * 图片相关的旋转/镜像紧跟在图片项后面, 属于图片的子项.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CrosshairSettingsCard(
@@ -58,202 +61,196 @@ fun CrosshairSettingsCard(
     val degreeFormat = stringResource(R.string.unit_degree_format)
 
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column {
-            ListItem(
-                headlineContent = {
-                    Text(
-                        text = stringResource(R.string.section_crosshair),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                },
-                supportingContent = {
-                    Text(
-                        text = stringResource(R.string.section_crosshair_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                },
-                trailingContent = {
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = { checked ->
-                            // 重新打开时把过小的值拉回默认, 避免恢复成看不见的小点
-                            if (checked && size < SettingsRepository.SIZE_SOFT_MAX) {
-                                size = SettingsRepository.SIZE_SOFT_MAX
-                                settings.crosshairSize = SettingsRepository.SIZE_SOFT_MAX
-                            }
-                            onEnabledChange(checked)
-                        }
-                    )
-                },
-                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-            )
-
-            // 直接 if 展开, 不用 AnimatedVisibility: 展开动画要每帧重排整列, 是开关卡顿的主因
-            if (enabled) {
-                SectionDivider()
-
+        Column(
+            modifier = Modifier.padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 ListItem(
                     headlineContent = {
                         Text(
-                            text = stringResource(R.string.crosshair_image),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    },
-                    trailingContent = {
-                        ImageActions(
-                            hasImage = hasImage,
-                            onResetImage = onResetImage,
-                            onPickImage = onPickImage
-                        )
-                    },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                )
-
-                // 图片相关的变换跟在图片后面, 属于图片的子项
-                if (hasImage) {
-                    SectionDivider()
-                    SettingSliderRow(
-                        label = stringResource(R.string.crosshair_rotate),
-                        value = rotation,
-                        valueRange = 0f..SettingsRepository.MAX_ROTATION,
-                        onChange = {
-                            rotation = it
-                            settings.crosshairRotation = it
-                        },
-                        format = { String.format(Locale.US, degreeFormat, it.roundToInt().toString()) }
-                    )
-                    SectionDivider()
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                text = stringResource(R.string.crosshair_flip_h),
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                        },
-                        supportingContent = {
-                            Text(
-                                text = stringResource(R.string.crosshair_transform_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        },
-                        trailingContent = {
-                            Switch(checked = flipH, onCheckedChange = {
-                                flipH = it
-                                settings.crosshairFlipH = it
-                            })
-                        },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                    )
-                    SectionDivider()
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                text = stringResource(R.string.crosshair_flip_v),
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                        },
-                        trailingContent = {
-                            Switch(checked = flipV, onCheckedChange = {
-                                flipV = it
-                                settings.crosshairFlipV = it
-                            })
-                        },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                    )
-                }
-
-                SectionDivider()
-                SettingSliderRow(
-                    label = stringResource(R.string.crosshair_size),
-                    value = size,
-                    valueRange = SettingsRepository.MIN_SIZE..SettingsRepository.MAX_SIZE,
-                    sliderRange = SettingsRepository.MIN_SIZE..SettingsRepository.SIZE_SOFT_MAX,
-                    splitAt = SettingsRepository.SIZE_SOFT_MAX,
-                    snapTarget = SettingsRepository.SIZE_SOFT_MAX,
-                    snapTolerance = SettingsRepository.SIZE_SNAP_TOLERANCE,
-                    onChange = {
-                        size = it.roundToInt().toFloat()
-                        settings.crosshairSize = size
-                    },
-                    format = { String.format(Locale.US, pxFormat, it.roundToInt().toString()) }
-                )
-
-                SectionDivider()
-                SettingSliderRow(
-                    label = stringResource(R.string.crosshair_offset_x),
-                    value = offsetX,
-                    valueRange = -screenWidth.toFloat()..screenWidth.toFloat(),
-                    onChange = {
-                        offsetX = it
-                        settings.crosshairOffsetX = it.roundToInt()
-                    },
-                    format = { String.format(Locale.US, pxFormat, pixels(it, false)) }
-                )
-
-                SectionDivider()
-                SettingSliderRow(
-                    label = stringResource(R.string.crosshair_offset_y),
-                    value = offsetY,
-                    valueRange = -screenHeight.toFloat()..screenHeight.toFloat(),
-                    onChange = {
-                        offsetY = it
-                        settings.crosshairOffsetY = it.roundToInt()
-                    },
-                    format = { String.format(Locale.US, pxFormat, pixels(it, false)) }
-                )
-
-                SectionDivider()
-                SettingSliderRow(
-                    label = stringResource(R.string.crosshair_alpha),
-                    value = alphaPercent,
-                    valueRange = 0f..100f,
-                    onChange = {
-                        alphaPercent = it
-                        settings.crosshairAlpha = it / 100f
-                    },
-                    format = { String.format(Locale.US, percentFormat, it.roundToInt().toString()) }
-                )
-
-                SectionDivider()
-                ListItem(
-                    headlineContent = {
-                        Text(
-                            text = stringResource(R.string.crosshair_notch),
-                            style = MaterialTheme.typography.bodyLarge
+                            text = stringResource(R.string.section_crosshair),
+                            style = MaterialTheme.typography.titleMedium
                         )
                     },
                     supportingContent = {
                         Text(
-                            text = stringResource(R.string.crosshair_notch_desc),
+                            text = stringResource(R.string.section_crosshair_desc),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     },
                     trailingContent = {
-                        Switch(checked = notch, onCheckedChange = {
-                            notch = it
-                            settings.crosshairNotchMode = it
-                        })
+                        Switch(checked = enabled, onCheckedChange = onEnabledChange)
                     },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                 )
+            }
 
-                Spacer(Modifier.height(8.dp))
+            if (enabled) {
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                text = stringResource(R.string.crosshair_image),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        },
+                        trailingContent = {
+                            ImageActions(
+                                hasImage = hasImage,
+                                onResetImage = onResetImage,
+                                onPickImage = onPickImage
+                            )
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                    )
+                }
+
+                // 图片的变换属于图片, 跟在图片项后面
+                if (hasImage) {
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        SettingSliderRow(
+                            label = stringResource(R.string.crosshair_rotate),
+                            value = rotation,
+                            valueRange = 0f..SettingsRepository.MAX_ROTATION,
+                            onChange = {
+                                rotation = it
+                                settings.crosshairRotation = it
+                            },
+                            format = {
+                                String.format(Locale.US, degreeFormat, it.roundToInt().toString())
+                            }
+                        )
+                    }
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    text = stringResource(R.string.crosshair_flip_h),
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                            },
+                            supportingContent = {
+                                Text(
+                                    text = stringResource(R.string.crosshair_transform_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            trailingContent = {
+                                Switch(checked = flipH, onCheckedChange = {
+                                    flipH = it
+                                    settings.crosshairFlipH = it
+                                })
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                    }
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    text = stringResource(R.string.crosshair_flip_v),
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                            },
+                            trailingContent = {
+                                Switch(checked = flipV, onCheckedChange = {
+                                    flipV = it
+                                    settings.crosshairFlipV = it
+                                })
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                    }
+                }
+
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    SettingSliderRow(
+                        label = stringResource(R.string.crosshair_size),
+                        value = size,
+                        valueRange = SettingsRepository.MIN_SIZE..SettingsRepository.MAX_SIZE,
+                        sliderRange = SettingsRepository.MIN_SIZE..SettingsRepository.SIZE_SOFT_MAX,
+                        splitAt = SettingsRepository.SIZE_SOFT_MAX,
+                        snapTarget = SettingsRepository.SIZE_SOFT_MAX,
+                        snapTolerance = SettingsRepository.SIZE_SNAP_TOLERANCE,
+                        onChange = {
+                            size = it.roundToInt().toFloat()
+                            settings.crosshairSize = size
+                        },
+                        format = { String.format(Locale.US, pxFormat, it.roundToInt().toString()) }
+                    )
+                }
+
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    SettingSliderRow(
+                        label = stringResource(R.string.crosshair_offset_x),
+                        value = offsetX,
+                        valueRange = -screenWidth.toFloat()..screenWidth.toFloat(),
+                        onChange = {
+                            offsetX = it
+                            settings.crosshairOffsetX = it.roundToInt()
+                        },
+                        format = { String.format(Locale.US, pxFormat, pixels(it, false)) }
+                    )
+                }
+
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    SettingSliderRow(
+                        label = stringResource(R.string.crosshair_offset_y),
+                        value = offsetY,
+                        valueRange = -screenHeight.toFloat()..screenHeight.toFloat(),
+                        onChange = {
+                            offsetY = it
+                            settings.crosshairOffsetY = it.roundToInt()
+                        },
+                        format = { String.format(Locale.US, pxFormat, pixels(it, false)) }
+                    )
+                }
+
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    SettingSliderRow(
+                        label = stringResource(R.string.crosshair_alpha),
+                        value = alphaPercent,
+                        valueRange = 0f..100f,
+                        onChange = {
+                            alphaPercent = it
+                            settings.crosshairAlpha = it / 100f
+                        },
+                        format = {
+                            String.format(Locale.US, percentFormat, it.roundToInt().toString())
+                        }
+                    )
+                }
+
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                text = stringResource(R.string.crosshair_notch),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        },
+                        supportingContent = {
+                            Text(
+                                text = stringResource(R.string.crosshair_notch_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        trailingContent = {
+                            Switch(checked = notch, onCheckedChange = {
+                                notch = it
+                                settings.crosshairNotchMode = it
+                            })
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                    )
+                }
             }
         }
     }
-}
-
-/** 分隔线: 用 MD3 里比背景略亮的描边色, 不抢内容 */
-@Composable
-private fun SectionDivider() {
-    Divider(
-        modifier = Modifier.padding(horizontal = 16.dp),
-        thickness = 1.dp,
-        color = MaterialTheme.colorScheme.outlineVariant
-    )
 }
 
 @Composable
