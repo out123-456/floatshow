@@ -56,8 +56,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -69,12 +68,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -279,7 +275,7 @@ fun DesignLabScreen(onBack: () -> Unit) {
                 }
 
                 LabSection(R.string.lab_section_nav) {
-                    PrimaryTabRow(selectedTabIndex = selectedTab) {
+                    TabRow(selectedTabIndex = selectedTab) {
                         Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = {
                             Text(stringResource(R.string.lab_name_tab_row))
                         })
@@ -381,21 +377,6 @@ fun DesignLabScreen(onBack: () -> Unit) {
                             }
                         }) {
                             Text(stringResource(R.string.lab_name_snackbar))
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        TooltipBox(
-                            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                            tooltip = {
-                                PlainTooltip {
-                                    Text(stringResource(R.string.lab_name_tooltip))
-                                }
-                            },
-                            state = rememberTooltipState()
-                        ) {
-                            Text(
-                                text = stringResource(R.string.lab_name_tooltip),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
                         }
                     }
                 }
