@@ -85,6 +85,11 @@ class OverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            // 由服务自己收尾: 此时 startForeground 已经调过, 不会踩到 5 秒规则
+            stopSelf()
+            return START_NOT_STICKY
+        }
         settings.prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         // 兜底: 被系统重启或重复 start 时也保证处于前台状态
         startForegroundCompat()
@@ -296,6 +301,7 @@ class OverlayService : Service() {
 
     companion object {
         const val ACTION_START = "com.qiqi.floatshow.action.START"
+        const val ACTION_STOP = "com.qiqi.floatshow.action.STOP"
 
         private const val CHANNEL_ID = "floatshow_overlay"
         private const val NOTIFICATION_ID = 1001
@@ -306,6 +312,15 @@ class OverlayService : Service() {
         fun start(context: Context) {
             val intent = Intent(context, OverlayService::class.java).setAction(ACTION_START)
             context.startForegroundService(intent)
+        }
+
+        /** 关闭服务: 用 startService 递一个停止指令, 由服务内部 stopSelf */
+        fun stop(context: Context) {
+            runCatching {
+                context.startService(
+                    Intent(context, OverlayService::class.java).setAction(ACTION_STOP)
+                )
+            }
         }
 
     }

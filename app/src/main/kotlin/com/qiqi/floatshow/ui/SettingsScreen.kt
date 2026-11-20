@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.core.app.NotificationManagerCompat
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -86,13 +87,9 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         (configuration.screenHeightDp * density.density).roundToInt()
     }
 
-    // 只在需要时启动, 立刻启动(零延迟). 停止不在这里做:
-    // UI 端发 stopService 会掐掉还没执行的 startForeground, 系统 5 秒后崩应用.
-    // 收尾交给 Service 自己, 它在全关时会延时自停, 连点期间不会反复重建.
-    LaunchedEffect(crosshairEnabled, panelEnabled, hasOverlayPermission) {
-        if (settings.anyOverlayEnabled && hasOverlayPermission) {
-            OverlayService.start(context)
-        }
+    // 有权限就请求服务, 与开关无关; 服务常驻, 直到用户点右上角关闭或系统回收
+    LaunchedEffect(hasOverlayPermission) {
+        if (hasOverlayPermission) OverlayService.start(context)
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -132,7 +129,7 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
             TopAppBar(
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
-                    // 设计预览页只在 debug 构建里留入口
+                    // 设计预览页只在 debug 里留入口, 之后会删
                     if (debuggable) {
                         IconButton(onClick = onOpenLab) {
                             Icon(
@@ -140,6 +137,12 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                                 contentDescription = stringResource(R.string.lab_open)
                             )
                         }
+                    }
+                    IconButton(onClick = { OverlayService.stop(context) }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = stringResource(R.string.action_close_service)
+                        )
                     }
                 }
             )
