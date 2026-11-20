@@ -54,9 +54,18 @@ class CrosshairView(context: Context) : View(context) {
             return if (bmp.width <= 0) 1f else bmp.height.toFloat() / bmp.width.toFloat()
         }
         val doc = vector ?: return 1f
+        return svgAspect(doc)
+    }
+
+    /** SVG 可能只给 viewBox 没有 width/height, 两种都得能算出比例 */
+    private fun svgAspect(doc: SVG): Float {
         val w = doc.documentWidth
         val h = doc.documentHeight
-        return if (w > 0f && h > 0f) h / w else 1f
+        if (w > 0f && h > 0f) return h / w
+        val ratio = runCatching { doc.documentAspectRatio }.getOrDefault(-1f)
+        if (ratio > 0f) return 1f / ratio
+        val box = runCatching { doc.documentViewBox }.getOrNull() ?: return 1f
+        return if (box.width() > 0f) box.height() / box.width() else 1f
     }
 
     /** 旋转后的包围盒尺寸(浮点)`,窗口要按它开才能不裁角 */
@@ -174,22 +183,15 @@ class CrosshairView(context: Context) : View(context) {
         canvas.scale(if (flipH) -1f else 1f, if (flipV) -1f else 1f, cx, cy)
         when {
             bmp != null -> canvas.drawBitmap(bmp, null, rect, null)
-            doc != null -> drawVector(canvas, doc, rect, w, h)
+            doc != null -> drawVector(canvas, doc, rect)
             else -> canvas.drawCircle(cx, cy, w / 2f, fallbackPaint)
         }
         canvas.restore()
     }
 
-    /** SVG 是矢量的`,直接把画布缩放到目标尺寸再渲染, 不用生成位图 */
-    private fun drawVector(canvas: Canvas, doc: SVG, rect: RectF, w: Float, h: Float) {
-        val docWidth = doc.documentWidth
-        val docHeight = doc.documentHeight
-        if (docWidth <= 0f || docHeight <= 0f) return
-        canvas.save()
-        canvas.translate(rect.left, rect.top)
-        canvas.scale(w / docWidth, h / docHeight)
-        doc.renderToCanvas(canvas)
-        canvas.restore()
+    /** SVG 是矢量的, 直接画进目标矩形(内部按 viewBox 适配), 不生成位图 */
+    private fun drawVector(canvas: Canvas, doc: SVG, rect: RectF) {
+        doc.renderToCanvas(canvas, rect)
     }
 
     override fun onDetachedFromWindow() {
