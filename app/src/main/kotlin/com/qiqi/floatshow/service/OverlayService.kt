@@ -71,6 +71,7 @@ class OverlayService : Service() {
         startForegroundCompat()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         settings = SettingsRepository(this)
+        settings.serviceRunning = true
         lifecycleOwner.start()
         registerComponentCallbacks(configCallbacks)
     }
@@ -98,6 +99,7 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
+        settings.serviceRunning = false
         handler.removeCallbacks(resyncRunnable)
         unregisterComponentCallbacks(configCallbacks)
         settings.prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
@@ -287,7 +289,6 @@ class OverlayService : Service() {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setSilent(true)
-            .setShowBadge(false)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
     }

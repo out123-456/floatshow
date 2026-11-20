@@ -21,6 +21,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -71,6 +72,18 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
     var panelEnabled by remember { mutableStateOf(settings.panelEnabled) }
     var hasImage by remember { mutableStateOf(settings.crosshairImageUri != null) }
     var notificationsAllowed by remember { mutableStateOf(notificationsEnabled(context)) }
+    var serviceRunning by remember { mutableStateOf(settings.serviceRunning) }
+
+    // 服务自己会写 serviceRunning, 这里跟着刷新按钮颜色
+    DisposableEffect(settings) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == SettingsRepository.KEY_SERVICE_RUNNING) {
+                serviceRunning = settings.serviceRunning
+            }
+        }
+        settings.prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { settings.prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     // 用可调试标记代替 BuildConfig: 不生成 Java 源, 也就不触发 JdkImageTransform
     val debuggable = remember(context) {
@@ -138,10 +151,18 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                             )
                         }
                     }
-                    IconButton(onClick = { OverlayService.stop(context) }) {
+                    // 服务在跑就是红色"关停", 停止时是强调色"启动"
+                    IconButton(onClick = {
+                        if (serviceRunning) OverlayService.stop(context) else OverlayService.start(context)
+                    }) {
                         Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = stringResource(R.string.action_close_service)
+                            imageVector = if (serviceRunning) Icons.Rounded.Close else Icons.Rounded.PlayArrow,
+                            contentDescription = stringResource(
+                                if (serviceRunning) R.string.action_close_service
+                                else R.string.action_start_service
+                            ),
+                            tint = if (serviceRunning) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.primary
                         )
                     }
                 }

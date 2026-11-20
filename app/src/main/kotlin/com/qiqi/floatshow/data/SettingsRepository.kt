@@ -53,6 +53,11 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_CROSSHAIR_FLIP_V, false)
         set(v) = prefs.edit { putBoolean(KEY_CROSSHAIR_FLIP_V, v) }
 
+    /** 前台服务是否在运行, 只用于顶栏按钮的状态显示 */
+    var serviceRunning: Boolean
+        get() = prefs.getBoolean(KEY_SERVICE_RUNNING, false)
+        set(v) = prefs.edit { putBoolean(KEY_SERVICE_RUNNING, v) }
+
     /** 0f..1f`,直接对应 View 的 alpha */
     var crosshairAlpha: Float
         get() = prefs.getFloat(KEY_CROSSHAIR_ALPHA, 1f)
@@ -88,6 +93,7 @@ class SettingsRepository(context: Context) {
         const val SIZE_SNAP_TOLERANCE = 5f
         const val UNSET_POSITION = -1
 
+        const val KEY_SERVICE_RUNNING = "service_running"
         const val KEY_CROSSHAIR_ENABLED = "crosshair_enabled"
         const val KEY_CROSSHAIR_IMAGE = "crosshair_image"
         const val KEY_CROSSHAIR_SIZE = "crosshair_size_float"
