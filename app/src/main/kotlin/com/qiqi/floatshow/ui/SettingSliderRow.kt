@@ -157,10 +157,10 @@ private fun InlineNumberField(
             keyboardOptions = KeyboardOptions(
                 keyboardType = if (allowDecimal) KeyboardType.Decimal else KeyboardType.Number
             ),
-            modifier = Modifier.width(72.dp)
+            modifier = Modifier.width(36.dp)
         )
         Divider(
-            modifier = Modifier.width(72.dp),
+            modifier = Modifier.width(36.dp),
             color = MaterialTheme.colorScheme.outline,
             thickness = 1.dp
         )
