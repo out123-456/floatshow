@@ -40,7 +40,8 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.01.00")
+    // material3 1.1.x 与 compose 1.6.0 的 keyframes 签名不兼容(运行时 NoSuchMethodError), 用 2024.02.00 对齐到 material3 1.2.0
+    val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
     implementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.12.0")
