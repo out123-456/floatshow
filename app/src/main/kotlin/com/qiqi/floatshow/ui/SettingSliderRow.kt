@@ -122,7 +122,12 @@ private fun InlineNumberField(
     allowDecimal: Boolean,
     onCommit: (Float) -> Unit
 ) {
-    var text by remember(value) { mutableStateOf(trimNumber(value, allowDecimal)) }
+    var text by remember { mutableStateOf(trimNumber(value, allowDecimal)) }
+
+    // 只有外部值变化(滑条、重置)才回写文字, 输入过程中的每次回调不再重置光标
+    LaunchedEffect(value) {
+        if (text.toFloatOrNull() != value) text = trimNumber(value, allowDecimal)
+    }
 
     Column(horizontalAlignment = Alignment.End) {
         BasicTextField(
@@ -142,7 +147,7 @@ private fun InlineNumberField(
             keyboardOptions = KeyboardOptions(
                 keyboardType = if (allowDecimal) KeyboardType.Decimal else KeyboardType.Number
             ),
-            modifier = Modifier.width(96.dp)
+            modifier = Modifier.width(72.dp)
         )
         Divider(
             color = MaterialTheme.colorScheme.outline,
