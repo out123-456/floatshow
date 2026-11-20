@@ -150,6 +150,7 @@ private fun InlineNumberField(
             modifier = Modifier.width(72.dp)
         )
         Divider(
+            modifier = Modifier.width(72.dp),
             color = MaterialTheme.colorScheme.outline,
             thickness = 1.dp
         )
