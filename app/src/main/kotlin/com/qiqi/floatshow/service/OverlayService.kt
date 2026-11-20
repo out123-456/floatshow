@@ -262,7 +262,8 @@ class OverlayService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 getString(R.string.channel_name),
-                NotificationManager.IMPORTANCE_LOW
+                // 最低档: 无声无震动无角标, 收进折叠区, 只作为系统对前台服务的硬性要求
+                NotificationManager.IMPORTANCE_MIN
             ).apply { description = getString(R.string.channel_description) }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
@@ -280,7 +281,9 @@ class OverlayService : Service() {
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(true)
+            .setShowBadge(false)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
     }
 
