@@ -77,6 +77,22 @@ class SettingsRepository(context: Context) {
         get() = prefs.getInt(KEY_PANEL_Y, UNSET_POSITION)
         set(v) = prefs.edit { putInt(KEY_PANEL_Y, v) }
 
+    var panelWidth: Int
+        get() = prefs.getInt(KEY_PANEL_WIDTH, DEFAULT_PANEL_WIDTH_DP)
+        set(v) = prefs.edit { putInt(KEY_PANEL_WIDTH, v) }
+
+    var panelHeight: Int
+        get() = prefs.getInt(KEY_PANEL_HEIGHT, DEFAULT_PANEL_HEIGHT_DP)
+        set(v) = prefs.edit { putInt(KEY_PANEL_HEIGHT, v) }
+
+    var panelExpanded: Boolean
+        get() = prefs.getBoolean(KEY_PANEL_EXPANDED, false)
+        set(v) = prefs.edit { putBoolean(KEY_PANEL_EXPANDED, v) }
+
+    var panelToolbarAtBottom: Boolean
+        get() = prefs.getBoolean(KEY_PANEL_TOOLBAR_BOTTOM, false)
+        set(v) = prefs.edit { putBoolean(KEY_PANEL_TOOLBAR_BOTTOM, v) }
+
     /** 任一层可见时服务就应存活 */
     val anyOverlayEnabled: Boolean
         get() = crosshairEnabled || panelEnabled
@@ -110,5 +126,13 @@ class SettingsRepository(context: Context) {
         const val KEY_PANEL_ENABLED = "panel_enabled"
         const val KEY_PANEL_X = "panel_x"
         const val KEY_PANEL_Y = "panel_y"
+        const val KEY_PANEL_WIDTH = "panel_width_dp"
+        const val KEY_PANEL_HEIGHT = "panel_height_dp"
+        const val KEY_PANEL_EXPANDED = "panel_expanded"
+        const val KEY_PANEL_TOOLBAR_BOTTOM = "panel_toolbar_bottom"
+        const val DEFAULT_PANEL_WIDTH_DP = 280
+        const val DEFAULT_PANEL_HEIGHT_DP = 220
+        const val MIN_PANEL_SIZE_DP = 72
+        const val PANEL_CONTROL_SIZE_DP = 36
     }
 }
