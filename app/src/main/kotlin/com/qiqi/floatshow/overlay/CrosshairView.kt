@@ -34,6 +34,8 @@ class CrosshairView(context: Context) : View(context) {
     /** 已经加载的 uri`,用于避免每次设置变化都重新解码(这是后台性能的最大开销) */
     @Volatile
     private var uriKey: String? = null
+    /** 图片/SVG 读取失败时通知外部(主线程回调) */
+    var onLoadFailed: ((String) -> Unit)? = null
     private var rotation = 0f
     private var flipH = false
     private var flipV = false
@@ -131,6 +133,9 @@ class CrosshairView(context: Context) : View(context) {
                 vector = loadedSvg
                 requestLayout()
                 invalidate()
+                if (loadedBitmap == null && loadedSvg == null) {
+                    onLoadFailed?.invoke(uriString)
+                }
             }
         }
     }

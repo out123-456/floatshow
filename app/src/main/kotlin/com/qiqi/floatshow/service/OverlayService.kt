@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.widget.Toast
 import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowInsets
@@ -128,7 +129,10 @@ class OverlayService : Service() {
             return
         }
 
-        val view = crosshairView ?: CrosshairView(this).also { crosshairView = it }
+        val view = crosshairView ?: CrosshairView(this).also {
+            crosshairView = it
+            it.onLoadFailed = { notifyImageFailed() }
+        }
         val size = settings.crosshairSize.coerceIn(SettingsRepository.MIN_SIZE, SettingsRepository.MAX_SIZE)
         view.setSize(size)
         view.setImage(settings.crosshairImageUri)
@@ -210,6 +214,11 @@ class OverlayService : Service() {
             runCatching { it.show(initialX, initialY) }
                 .onFailure { stopSelf() }
         }
+    }
+
+    /** 图片读不出来时给个提示, 否则用户只会看到什么都没显示 */
+    private fun notifyImageFailed() {
+        Toast.makeText(this, getString(R.string.crosshair_image_failed), Toast.LENGTH_SHORT).show()
     }
 
     private fun removeCrosshair() {

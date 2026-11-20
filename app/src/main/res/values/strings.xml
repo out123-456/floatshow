@@ -47,6 +47,7 @@
     <string name="crosshair_rotate">旋转</string>
     <string name="crosshair_flip_h">水平镜像</string>
     <string name="crosshair_flip_v">垂直镜像</string>
+    <string name="crosshair_image_failed">这张图片读不出来, 已回退默认圆点</string>
     <string name="crosshair_transform_desc">旋转与镜像只影响显示，不改动原图</string>
     <string name="lab_title">设计预览 / Design Lab</string>
     <string name="lab_open">设计预览</string>
