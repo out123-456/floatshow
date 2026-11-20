@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import com.caverock.androidsvg.SVG
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
@@ -21,12 +22,15 @@ import kotlin.math.sin
  *
  * 尺寸语义: [setSize] 指的是图片的**水平边**(像素), 高度按图片自身比例算, 与屏幕横竖无关.
  * 旋转时不裁角: 窗口按旋转后的包围盒开, 内容始终绕包围盒中心旋转.
+ *
+ * 支持位图与 SVG 两种来源: 位图按屏幕宽度采样解码, SVG 直接矢量绘制, 放大不会糊.
  */
 class CrosshairView(context: Context) : View(context) {
 
     private var size: Float = 4f
     private var bitmap: Bitmap? = null
-    /** 已经解码的 uri`,用于避免每次设置变化都重新解码图片(这是后台性能的最大开销) */
+    private var vector: SVG? = null
+    /** 已经加载的 uri`,用于避免每次设置变化都重新解码(这是后台性能的最大开销) */
     private var uriKey: String? = null
     private var rotation = 0f
     private var flipH = false
@@ -45,8 +49,14 @@ class CrosshairView(context: Context) : View(context) {
     val contentHeight: Float get() = size * aspect()
 
     private fun aspect(): Float {
-        val bmp = bitmap ?: return 1f
-        return if (bmp.width <= 0) 1f else bmp.height.toFloat() / bmp.width.toFloat()
+        val bmp = bitmap
+        if (bmp != null) {
+            return if (bmp.width <= 0) 1f else bmp.height.toFloat() / bmp.width.toFloat()
+        }
+        val doc = vector ?: return 1f
+        val w = doc.documentWidth
+        val h = doc.documentHeight
+        return if (w > 0f && h > 0f) h / w else 1f
     }
 
     /** 旋转后的包围盒尺寸(浮点)`,窗口要按它开才能不裁角 */
@@ -74,24 +84,33 @@ class CrosshairView(context: Context) : View(context) {
     }
 
     /**
-     * uri 为 null 时回退到默认圆点; 同一个 uri 重复设置不会重新解码.
-     * 解码放后台线程, 大图不至于把主线程 (和服务启动) 卡住.
+     * uri 为 null 时回退到默认圆点; 同一个 uri 重复设置不会重新加载.
+     * 加载放后台线程, 大图不至于把主线程 (和服务启动) 卡住.
      */
     fun setImage(uriString: String?) {
         if (uriKey == uriString) return
         uriKey = uriString
         if (uriString == null) {
             bitmap = null
+            vector = null
             requestLayout()
             invalidate()
             return
         }
         Thread {
-            val decoded = decode(Uri.parse(uriString))
+            val uri = Uri.parse(uriString)
+            var loadedBitmap: Bitmap? = null
+            var loadedSvg: SVG? = null
+            if (isSvg(uri)) {
+                loadedSvg = decodeSvg(uri)
+            } else {
+                loadedBitmap = decodeBitmap(uri)
+            }
             mainHandler.post {
-                // 解码期间 uri 又被换掉了, 这批结果作废
+                // 加载期间 uri 又被换掉了, 这批结果作废
                 if (uriKey != uriString) return@post
-                bitmap = decoded
+                bitmap = loadedBitmap
+                vector = loadedSvg
                 requestLayout()
                 invalidate()
             }
@@ -107,8 +126,15 @@ class CrosshairView(context: Context) : View(context) {
         invalidate()
     }
 
+    /** 系统不给 SVG 的 MIME 时靠扩展名补一刀 */
+    private fun isSvg(uri: Uri): Boolean {
+        val mime = runCatching { context.contentResolver.getType(uri) }.getOrNull()
+        if (mime == MIME_SVG) return true
+        return uri.lastPathSegment?.endsWith(".svg", ignoreCase = true) == true
+    }
+
     /** 按屏幕宽度做采样解码`,避免一张手机照片解出几十 MB 的位图 */
-    private fun decode(uri: Uri): Bitmap? = try {
+    private fun decodeBitmap(uri: Uri): Bitmap? = try {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, bounds)
@@ -124,6 +150,12 @@ class CrosshairView(context: Context) : View(context) {
         null
     }
 
+    private fun decodeSvg(uri: Uri): SVG? = try {
+        context.contentResolver.openInputStream(uri)?.use { SVG.getFromInputStream(it) }
+    } catch (_: Exception) {
+        null
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         setMeasuredDimension(pixelWidth, pixelHeight)
     }
@@ -131,6 +163,7 @@ class CrosshairView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val bmp = bitmap
+        val doc = vector
         val cx = pixelWidth / 2f
         val cy = pixelHeight / 2f
         val w = contentWidth
@@ -139,11 +172,23 @@ class CrosshairView(context: Context) : View(context) {
         canvas.save()
         canvas.rotate(rotation, cx, cy)
         canvas.scale(if (flipH) -1f else 1f, if (flipV) -1f else 1f, cx, cy)
-        if (bmp != null) {
-            canvas.drawBitmap(bmp, null, rect, null)
-        } else {
-            canvas.drawCircle(cx, cy, w / 2f, fallbackPaint)
+        when {
+            bmp != null -> canvas.drawBitmap(bmp, null, rect, null)
+            doc != null -> drawVector(canvas, doc, rect, w, h)
+            else -> canvas.drawCircle(cx, cy, w / 2f, fallbackPaint)
         }
+        canvas.restore()
+    }
+
+    /** SVG 是矢量的`,直接把画布缩放到目标尺寸再渲染, 不用生成位图 */
+    private fun drawVector(canvas: Canvas, doc: SVG, rect: RectF, w: Float, h: Float) {
+        val docWidth = doc.documentWidth
+        val docHeight = doc.documentHeight
+        if (docWidth <= 0f || docHeight <= 0f) return
+        canvas.save()
+        canvas.translate(rect.left, rect.top)
+        canvas.scale(w / docWidth, h / docHeight)
+        doc.renderToCanvas(canvas)
         canvas.restore()
     }
 
@@ -151,6 +196,11 @@ class CrosshairView(context: Context) : View(context) {
         super.onDetachedFromWindow()
         // 不主动 recycle: 窗口移除后 View 可能被重建复用, 让 GC 处理更安全
         bitmap = null
+        vector = null
         uriKey = null
+    }
+
+    private companion object {
+        const val MIME_SVG = "image/svg+xml"
     }
 }
