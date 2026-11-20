@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import com.caverock.androidsvg.SVG
+import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
@@ -31,12 +32,18 @@ class CrosshairView(context: Context) : View(context) {
     private var bitmap: Bitmap? = null
     private var vector: SVG? = null
     /** 已经加载的 uri`,用于避免每次设置变化都重新解码(这是后台性能的最大开销) */
+    @Volatile
     private var uriKey: String? = null
     private var rotation = 0f
     private var flipH = false
     private var flipV = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** 单线程即可: 同一时刻只会有一张图在解, 连点切图不会并发解出好几张大图 */
+    private val decodeExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "crosshair-decode").apply { isDaemon = true }
+    }
 
     private val fallbackPaint = Paint().apply {
         color = Color.WHITE
@@ -106,7 +113,9 @@ class CrosshairView(context: Context) : View(context) {
             invalidate()
             return
         }
-        Thread {
+        decodeExecutor.execute {
+            // 排队期间已经换成别的图了, 直接丢弃, 别白解一张
+            if (uriKey != uriString) return@execute
             val uri = Uri.parse(uriString)
             var loadedBitmap: Bitmap? = null
             var loadedSvg: SVG? = null
@@ -123,7 +132,7 @@ class CrosshairView(context: Context) : View(context) {
                 requestLayout()
                 invalidate()
             }
-        }.start()
+        }
     }
 
     fun setTransform(rotationDeg: Float, flipHorizontal: Boolean, flipVertical: Boolean) {
