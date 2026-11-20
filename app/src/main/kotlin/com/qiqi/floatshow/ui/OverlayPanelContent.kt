@@ -1,5 +1,6 @@
 package com.qiqi.floatshow.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,16 +33,17 @@ import com.qiqi.floatshow.R
  */
 @Composable
 fun OverlayPanelContent(
+    maxWidthDp: Int = 320,
     onDragDelta: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
     onClose: () -> Unit
 ) {
     Surface(
-        modifier = Modifier.widthIn(min = 200.dp, max = 320.dp),
+        modifier = Modifier.widthIn(min = 200.dp, max = maxWidthDp.dp),
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 3.dp,
-        shadowElevation = 8.dp
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column {
             Row(

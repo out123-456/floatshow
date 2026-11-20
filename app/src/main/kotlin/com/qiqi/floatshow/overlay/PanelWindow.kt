@@ -52,13 +52,17 @@ class PanelWindow(
             y = initialY
         }
 
+        val maxWidthDp = (service.resources.configuration.screenWidthDp - 48).coerceIn(200, 360)
+
         val composeView = ComposeView(service).apply {
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
             setViewTreeLifecycleOwner(lifecycleOwner)
             setViewTreeViewModelStoreOwner(lifecycleOwner)
             setViewTreeSavedStateRegistryOwner(lifecycleOwner)
             setContent {
                 FloatshowTheme {
                     OverlayPanelContent(
+                        maxWidthDp = maxWidthDp,
                         onDragDelta = ::moveBy,
                         onDragEnd = { onMoved(params?.x ?: initialX, params?.y ?: initialY) },
                         onClose = onClosed

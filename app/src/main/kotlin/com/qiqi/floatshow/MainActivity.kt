@@ -4,6 +4,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.qiqi.floatshow.ui.DesignLabScreen
 import com.qiqi.floatshow.ui.SettingsScreen
 import com.qiqi.floatshow.ui.theme.FloatshowTheme
 
@@ -17,7 +22,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             FloatshowTheme {
-                SettingsScreen()
+                var showLab by remember { mutableStateOf(false) }
+                if (showLab) {
+                    DesignLabScreen(onBack = { showLab = false })
+                } else {
+                    SettingsScreen(onOpenLab = { showLab = true })
+                }
             }
         }
     }

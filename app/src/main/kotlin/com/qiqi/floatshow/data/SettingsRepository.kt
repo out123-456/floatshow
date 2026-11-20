@@ -22,9 +22,10 @@ class SettingsRepository(context: Context) {
         get() = prefs.getString(KEY_CROSSHAIR_IMAGE, null)
         set(v) = prefs.edit { putString(KEY_CROSSHAIR_IMAGE, v) }
 
-    var crosshairSize: Int
-        get() = prefs.getInt(KEY_CROSSHAIR_SIZE, DEFAULT_SIZE)
-        set(v) = prefs.edit { putInt(KEY_CROSSHAIR_SIZE, v) }
+    /** 准星边长(px),支持亚像素(最小 [MIN_SIZE]) */
+    var crosshairSize: Float
+        get() = prefs.getFloat(KEY_CROSSHAIR_SIZE, DEFAULT_SIZE)
+        set(v) = prefs.edit { putFloat(KEY_CROSSHAIR_SIZE, v) }
 
     var crosshairOffsetX: Int
         get() = prefs.getInt(KEY_CROSSHAIR_OFFSET_X, 0)
@@ -38,6 +39,19 @@ class SettingsRepository(context: Context) {
     var crosshairNotchMode: Boolean
         get() = prefs.getBoolean(KEY_CROSSHAIR_NOTCH, false)
         set(v) = prefs.edit { putBoolean(KEY_CROSSHAIR_NOTCH, v) }
+
+    /** 旋转角度(度), 只在有自定义图片时生效 */
+    var crosshairRotation: Float
+        get() = prefs.getFloat(KEY_CROSSHAIR_ROTATION, 0f)
+        set(v) = prefs.edit { putFloat(KEY_CROSSHAIR_ROTATION, v) }
+
+    var crosshairFlipH: Boolean
+        get() = prefs.getBoolean(KEY_CROSSHAIR_FLIP_H, false)
+        set(v) = prefs.edit { putBoolean(KEY_CROSSHAIR_FLIP_H, v) }
+
+    var crosshairFlipV: Boolean
+        get() = prefs.getBoolean(KEY_CROSSHAIR_FLIP_V, false)
+        set(v) = prefs.edit { putBoolean(KEY_CROSSHAIR_FLIP_V, v) }
 
     /** 0f..1f`,直接对应 View 的 alpha */
     var crosshairAlpha: Float
@@ -64,16 +78,29 @@ class SettingsRepository(context: Context) {
 
     companion object {
         const val PREFS_NAME = "floatshow_settings"
-        const val DEFAULT_SIZE = 40
+        const val DEFAULT_SIZE = 100f
+        const val MIN_SIZE = 1f
+
+        /** 滑条默认上限`,输入更大时滑条上限临时跟着扩展 */
+        const val SIZE_SOFT_MAX = 100f
+
+        /** 只对软上限做吸附`,滑到附近自动对上 */
+        const val SIZE_SNAP_TOLERANCE = 5f
         const val UNSET_POSITION = -1
 
         const val KEY_CROSSHAIR_ENABLED = "crosshair_enabled"
         const val KEY_CROSSHAIR_IMAGE = "crosshair_image"
-        const val KEY_CROSSHAIR_SIZE = "crosshair_size"
+        const val KEY_CROSSHAIR_SIZE = "crosshair_size_float"
         const val KEY_CROSSHAIR_OFFSET_X = "crosshair_offset_x"
         const val KEY_CROSSHAIR_OFFSET_Y = "crosshair_offset_y"
         const val KEY_CROSSHAIR_NOTCH = "crosshair_notch"
         const val KEY_CROSSHAIR_ALPHA = "crosshair_alpha"
+        const val KEY_CROSSHAIR_ROTATION = "crosshair_rotation"
+        const val KEY_CROSSHAIR_FLIP_H = "crosshair_flip_h"
+        const val KEY_CROSSHAIR_FLIP_V = "crosshair_flip_v"
+
+        const val MAX_SIZE = 4096f
+        const val MAX_ROTATION = 360f
         const val KEY_PANEL_ENABLED = "panel_enabled"
         const val KEY_PANEL_X = "panel_x"
         const val KEY_PANEL_Y = "panel_y"

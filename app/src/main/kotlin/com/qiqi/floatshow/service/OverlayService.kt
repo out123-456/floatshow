@@ -13,7 +13,9 @@ import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowInsets
@@ -39,8 +41,17 @@ class OverlayService : Service() {
     private var crosshairParams: WindowManager.LayoutParams? = null
     private var panel: PanelWindow? = null
 
+    private val handler = Handler(Looper.getMainLooper())
+    private var pendingSync = false
+
+    /** 拖动滑条时 SP 一帧变好几次`,合并成一次处理, 避免重复解码与窗口刷新 */
+    private val resyncRunnable = Runnable {
+        pendingSync = false
+        sync()
+    }
+
     private val prefsListener =
-        SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> sync() }
+        SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> scheduleSync() }
 
     override fun onCreate() {
         super.onCreate()
@@ -78,6 +89,7 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(resyncRunnable)
         settings.prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
         removeCrosshair()
         panel?.remove()
@@ -89,6 +101,12 @@ class OverlayService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     // ── 同步 ────────────────────────────────────────────────
+
+    private fun scheduleSync() {
+        if (pendingSync) return
+        pendingSync = true
+        handler.postDelayed(resyncRunnable, SYNC_INTERVAL_MS)
+    }
 
     private fun sync() {
         applyCrosshair()
@@ -103,21 +121,32 @@ class OverlayService : Service() {
         }
 
         val view = crosshairView ?: CrosshairView(this).also { crosshairView = it }
-        val size = settings.crosshairSize.coerceAtLeast(8)
-        view.setDisplaySize(size)
-        view.setImage(settings.crosshairImageUri?.let(Uri::parse))
+        val size = settings.crosshairSize.coerceIn(SettingsRepository.MIN_SIZE, SettingsRepository.MAX_SIZE)
+        view.setSize(size)
+        view.setImage(settings.crosshairImageUri)
         view.alpha = settings.crosshairAlpha
+        view.setTransform(
+            settings.crosshairRotation,
+            settings.crosshairFlipH,
+            settings.crosshairFlipV
+        )
+
+        // 窗口只能整数像素, 亚像素尺寸靠 scale 补偿, 视觉尺寸与设置值一致
+        val pxW = view.pixelWidth
+        val pxH = view.pixelHeight
+        view.scaleX = view.boxWidth / pxW
+        view.scaleY = view.boxHeight / pxH
 
         val (screenWidth, screenHeight) = screenSize()
         val centerY = centeredY(screenHeight)
-        val left = screenWidth / 2 + settings.crosshairOffsetX - size / 2
-        val top = centerY + settings.crosshairOffsetY - size / 2
+        val left = screenWidth / 2 + settings.crosshairOffsetX - pxW / 2
+        val top = centerY + settings.crosshairOffsetY - pxH / 2
 
         val params = crosshairParams
         if (params == null) {
             val newParams = WindowManager.LayoutParams(
-                size,
-                size,
+                pxW,
+                pxH,
                 overlayWindowType(),
                 // 准星永远点击穿透`,不拦截任何操作
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -133,8 +162,14 @@ class OverlayService : Service() {
                 .onSuccess { crosshairParams = newParams }
                 .onFailure { stopSelf() }
         } else {
-            params.width = size
-            params.height = size
+            // 窗口没变化就不要调 WMS`,这是拖动滑条时最主要的额外开销
+            if (params.width == pxW && params.height == pxH &&
+                params.x == left && params.y == top
+            ) {
+                return
+            }
+            params.width = pxW
+            params.height = pxH
             params.x = left
             params.y = top
             runCatching { windowManager.updateViewLayout(view, params) }
@@ -249,6 +284,9 @@ class OverlayService : Service() {
 
         private const val CHANNEL_ID = "floatshow_overlay"
         private const val NOTIFICATION_ID = 1001
+
+        /** 合并设置变化的间隔(约一帧) */
+        private const val SYNC_INTERVAL_MS = 16L
 
         fun start(context: Context) {
             val intent = Intent(context, OverlayService::class.java).setAction(ACTION_START)
