@@ -86,14 +86,12 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         (configuration.screenHeightDp * density.density).roundToInt()
     }
 
-    // 开关只写设置. 服务启停由下面这个效果统一处理, 并且延迟一点:
-    // 快速连点开关时若每次都 start/stop, startForegroundService 的 5 秒会被 stopService 吃掉, 系统直接崩应用
+    // 只在需要时启动, 立刻启动(零延迟). 停止不在这里做:
+    // UI 端发 stopService 会掐掉还没执行的 startForeground, 系统 5 秒后崩应用.
+    // 收尾交给 Service 自己, 它在全关时会延时自停, 连点期间不会反复重建.
     LaunchedEffect(crosshairEnabled, panelEnabled, hasOverlayPermission) {
-        delay(SERVICE_DEBOUNCE_MS)
-        if (settings.anyOverlayEnabled) {
-            if (hasOverlayPermission) OverlayService.start(context)
-        } else {
-            OverlayService.stop(context)
+        if (settings.anyOverlayEnabled && hasOverlayPermission) {
+            OverlayService.start(context)
         }
     }
 
@@ -237,9 +235,6 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
 }
 
 /** Android 13 起看权限, 更早的版本看通知开关 */
-/** 服务启停的去抖时间 */
-private const val SERVICE_DEBOUNCE_MS = 250L
-
 private fun notificationsEnabled(context: android.content.Context): Boolean =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
