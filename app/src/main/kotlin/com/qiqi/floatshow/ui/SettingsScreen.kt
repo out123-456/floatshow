@@ -1,5 +1,8 @@
 package com.qiqi.floatshow.ui
 
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import android.Manifest
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -169,10 +172,13 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
             )
         }
     ) { padding ->
+        val focusManager = LocalFocusManager.current
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                // 点空白处收起键盘/取消焦点; 子控件已消费的点击不会走到这里
+                .pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)

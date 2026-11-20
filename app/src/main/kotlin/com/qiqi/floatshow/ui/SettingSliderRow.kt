@@ -1,5 +1,7 @@
 package com.qiqi.floatshow.ui
 
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.layout.Arrangement
@@ -133,6 +135,7 @@ private fun InlineNumberField(
     onCommit: (Float) -> Unit
 ) {
     var text by remember { mutableStateOf(trimNumber(value, allowDecimal)) }
+    val focusManager = LocalFocusManager.current
 
     // 只有外部值变化(滑条、重置)才回写文字, 输入过程中的每次回调不再重置光标
     LaunchedEffect(value) {
@@ -155,8 +158,10 @@ private fun InlineNumberField(
                 textAlign = TextAlign.End
             ),
             keyboardOptions = KeyboardOptions(
-                keyboardType = if (allowDecimal) KeyboardType.Decimal else KeyboardType.Number
+                keyboardType = if (allowDecimal) KeyboardType.Decimal else KeyboardType.Number,
+                imeAction = ImeAction.Done
             ),
+            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
             modifier = Modifier.width(36.dp)
         )
         Divider(
