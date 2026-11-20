@@ -94,6 +94,11 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_PANEL_TOOLBAR_BOTTOM, false)
         set(v) = prefs.edit { putBoolean(KEY_PANEL_TOOLBAR_BOTTOM, v) }
 
+    /** 一次写入多项, 只触发一次监听回调 */
+    fun editing(block: android.content.SharedPreferences.Editor.() -> Unit) {
+        prefs.edit().apply(block).apply()
+    }
+
     /** 任一层可见时服务就应存活 */
     val anyOverlayEnabled: Boolean
         get() = crosshairEnabled || panelEnabled

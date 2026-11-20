@@ -44,6 +44,7 @@ import com.qiqi.floatshow.R
 import com.qiqi.floatshow.overlay.PanelGeometry
 import com.qiqi.floatshow.overlay.PanelLayout
 import com.qiqi.floatshow.overlay.ResizeCorner
+import kotlin.math.min
 
 /**
  * 悬浮面板的全部交互. 窗口尺寸是精确像素, 所以这里也用像素思考:
@@ -92,8 +93,6 @@ fun OverlayPanelContent(
         BallContent(
             geometry = geometry,
             ballSizePx = ballSizePx,
-            screenWidth = screenWidth,
-            screenHeight = screenHeight,
             onGeometry = ::push,
             onCommit = commit,
             onExpand = {
@@ -164,8 +163,6 @@ private fun controlRect(
 private fun BallContent(
     geometry: PanelGeometry,
     ballSizePx: Int,
-    screenWidth: Int,
-    screenHeight: Int,
     onGeometry: (PanelGeometry) -> Unit,
     onCommit: () -> Unit,
     onExpand: () -> Unit
@@ -176,11 +173,7 @@ private fun BallContent(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { onExpand() },
-                    // 长按拖动: 与点按区分, 避免拖动手势被当成点击
-                    onLongPress = {}
-                )
+                detectTapGestures(onTap = { onExpand() })
             }
             .pointerInput(Unit) {
                 detectDragGestures(
@@ -217,7 +210,6 @@ private fun BallContent(
             }
         }
     }
-    // screenWidth / screenHeight 由调用方约束保证, 这里不重复使用
 }
 
 /** 展开态 */
@@ -375,7 +367,7 @@ private fun SquareIconButton(
 
 /** 内容槽, 后续接图片 / Markdown */
 @Composable
-private fun BoxScope.ContentsSlot(modifier: Modifier = Modifier) {
+private fun ContentsSlot(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Text(
             text = stringResource(R.string.panel_placeholder),

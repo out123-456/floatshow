@@ -27,6 +27,8 @@ import com.qiqi.floatshow.MainActivity
 import com.qiqi.floatshow.R
 import com.qiqi.floatshow.data.SettingsRepository
 import com.qiqi.floatshow.overlay.CrosshairView
+import com.qiqi.floatshow.overlay.PanelGeometry
+import com.qiqi.floatshow.overlay.PanelLayout
 import com.qiqi.floatshow.overlay.PanelWindow
 
 /**
@@ -201,24 +203,66 @@ class OverlayService : Service() {
         if (panel?.isShowing == true) return
 
         val (screenWidth, screenHeight) = screenSize()
-        val initialX = settings.panelX.takeUnless { it == SettingsRepository.UNSET_POSITION }
-            ?: (screenWidth / 4)
-        val initialY = settings.panelY.takeUnless { it == SettingsRepository.UNSET_POSITION }
-            ?: (screenHeight / 3)
+        val density = resources.displayMetrics.density
+        val controlPx = dpToPx(SettingsRepository.PANEL_CONTROL_SIZE_DP, density)
+        val ballPx = dpToPx(SettingsRepository.PANEL_BALL_SIZE_DP, density)
+        val minPx = dpToPx(SettingsRepository.MIN_PANEL_SIZE_DP, density)
+        val restoreWidth = settings.panelWidthPx.takeIf { it > 0 }
+            ?: dpToPx(SettingsRepository.DEFAULT_PANEL_WIDTH_DP, density)
+        val restoreHeight = settings.panelHeightPx.takeIf { it > 0 }
+            ?: dpToPx(SettingsRepository.DEFAULT_PANEL_HEIGHT_DP, density)
+
+        val savedX = settings.panelX.takeUnless { it == SettingsRepository.UNSET_POSITION }
+        val savedY = settings.panelY.takeUnless { it == SettingsRepository.UNSET_POSITION }
+        val expanded = settings.panelExpanded
+        val geometry = if (expanded) {
+            PanelGeometry(
+                x = savedX ?: ((screenWidth - restoreWidth) / 2),
+                y = savedY ?: ((screenHeight - restoreHeight) / 2),
+                width = restoreWidth,
+                height = restoreHeight
+            )
+        } else {
+            // 收缩态: 位置是悬浮球的左上角
+            PanelGeometry(
+                x = savedX ?: (screenWidth - ballPx) / 2,
+                y = savedY ?: (screenHeight - ballPx) / 2,
+                width = ballPx,
+                height = ballPx
+            )
+        }.let { PanelLayout.clamp(it, screenWidth, screenHeight) }
 
         panel = PanelWindow(
             service = this,
             lifecycleOwner = lifecycleOwner,
-            onMoved = { x, y ->
-                settings.panelX = x
-                settings.panelY = y
+            initial = geometry,
+            expandedInitially = expanded,
+            toolbarAtBottomInitially = settings.panelToolbarAtBottom,
+            ballSizePx = ballPx,
+            controlSizePx = controlPx,
+            minSizePx = minPx,
+            restoreWidthPx = restoreWidth,
+            restoreHeightPx = restoreHeight,
+            screenSize = ::screenSize,
+            onCommitted = { geo, isExpanded, toolbarBottom ->
+                settings.editing {
+                    putBoolean(SettingsRepository.KEY_PANEL_EXPANDED, isExpanded)
+                    putBoolean(SettingsRepository.KEY_PANEL_TOOLBAR_BOTTOM, toolbarBottom)
+                    putInt(SettingsRepository.KEY_PANEL_X, geo.x)
+                    putInt(SettingsRepository.KEY_PANEL_Y, geo.y)
+                    if (isExpanded) {
+                        putInt(SettingsRepository.KEY_PANEL_WIDTH, geo.width)
+                        putInt(SettingsRepository.KEY_PANEL_HEIGHT, geo.height)
+                    }
+                }
             },
-            onClosed = { settings.panelEnabled = false }
+            onClose = { settings.panelEnabled = false }
         ).also {
-            runCatching { it.show(initialX, initialY) }
-                .onFailure { stopSelf() }
+            runCatching { it.show() }.onFailure { stopSelf() }
         }
     }
+
+    private fun dpToPx(dp: Int, density: Float): Int = (dp * density).toInt()
 
     /** 图片读不出来时给个提示, 否则用户只会看到什么都没显示 */
     private fun notifyImageFailed() {
