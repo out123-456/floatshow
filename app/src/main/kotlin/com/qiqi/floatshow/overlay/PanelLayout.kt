@@ -55,9 +55,12 @@ object PanelLayout {
     fun nextToolbarAtBottom(current: Boolean, geometry: PanelGeometry, screenHeight: Int): Boolean {
         val band = screenHeight * FLIP_RATIO
         return if (!current) {
+            // 顶边进入屏幕顶部 10%: 翻到底部
             geometry.y < band
         } else {
-            geometry.y >= band && geometry.y + geometry.height >= screenHeight - band
+            // 已经在底部: 只有"离开顶部区且底边进入底部 10%"才翻回顶部, 否则保持不动.
+            // 这里返回的是"是否仍在底部", 上一版把翻回条件直接当结果返回, 顶部区内两种状态互相翻转造成闪烁
+            !(geometry.y >= band && geometry.y + geometry.height >= screenHeight - band)
         }
     }
 
