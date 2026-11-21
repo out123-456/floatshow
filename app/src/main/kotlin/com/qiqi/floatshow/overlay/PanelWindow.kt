@@ -5,9 +5,6 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.view.Gravity
 import android.view.WindowManager
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
@@ -22,7 +19,7 @@ data class PanelGeometry(val x: Int, val y: Int, val width: Int, val height: Int
 /**
  * 面板窗口. 窗口尺寸为精确像素值, 球态与展开态只是两个不同的几何.
  *
- * 几何由 Compose 侧计算(拖动 / 缩放 / 收缩), 这里只负责套到窗口上:
+ * 几何的唯一真相在 Compose 侧; 这里只负责把它套到窗口上:
  * 同一帧内多次修改合并成一次 updateViewLayout, 避免跨进程调用堆积.
  */
 class PanelWindow(
@@ -46,13 +43,14 @@ class PanelWindow(
     private var params: WindowManager.LayoutParams? = null
     private var view: ComposeView? = null
 
-    /** 当前几何. Compose 每次手势都写它, 本类合并到下一帧再套到窗口上 */
-    var geometry by mutableStateOf(initial)
-        private set
+    /** 窗口当前已经套用的几何(不参与 Compose 重组) */
+    private var applied = initial
+    /** 待套用的最新几何 */
+    private var target = initial
+    private var pendingApply = false
 
-    private var pendingUpdate = false
     private val applyRunnable = Runnable {
-        pendingUpdate = false
+        pendingApply = false
         applyGeometry()
     }
 
@@ -84,7 +82,7 @@ class PanelWindow(
                 FloatshowTheme {
                     val (screenWidth, screenHeight) = screenSize()
                     OverlayPanelContent(
-                        geometry = geometry,
+                        geometry = initial,
                         expandedInitially = expandedInitially,
                         toolbarAtBottomInitially = toolbarAtBottomInitially,
                         screenWidth = screenWidth,
@@ -94,7 +92,7 @@ class PanelWindow(
                         minSizePx = minSizePx,
                         restoreWidthPx = restoreWidthPx,
                         restoreHeightPx = restoreHeightPx,
-                        onGeometry = ::setGeometry,
+                        onGeometry = ::applyGeometry,
                         onCommit = onCommitted,
                         onClose = onClose
                     )
@@ -108,19 +106,20 @@ class PanelWindow(
     }
 
     /** Compose 算出的新几何, 合并在下一帧套用 */
-    fun setGeometry(new: PanelGeometry) {
-        if (geometry == new) return
-        geometry = new
-        if (pendingUpdate) return
-        pendingUpdate = true
+    fun applyGeometry(new: PanelGeometry) {
+        if (target == new) return
+        target = new
+        if (pendingApply) return
+        pendingApply = true
         view?.postOnAnimation(applyRunnable)
     }
 
     private fun applyGeometry() {
         val p = params ?: return
         val v = view ?: return
-        val g = geometry
-        if (p.x == g.x && p.y == g.y && p.width == g.width && p.height == g.height) return
+        val g = target
+        if (applied == g) return
+        applied = g
         p.x = g.x
         p.y = g.y
         p.width = g.width
