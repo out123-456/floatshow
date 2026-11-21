@@ -149,11 +149,11 @@ class SettingsRepository(context: Context) {
         const val KEY_PANEL_TOOLBAR_BOTTOM = "panel_toolbar_bottom"
         const val DEFAULT_PANEL_WIDTH_DP = 280
         const val DEFAULT_PANEL_HEIGHT_DP = 220
-        /** 最小宽高 = 两倍控制按钮(36dp × 2) */
-        const val MIN_PANEL_SIZE_DP = 72
-        /** 最小化/关闭按钮的方形触发区 */
-        const val PANEL_CONTROL_SIZE_DP = 36
         /** 收缩态圆球直径 */
-        const val PANEL_BALL_SIZE_DP = 56
+        const val PANEL_BALL_SIZE_DP = 40
+        /** 最小化/关闭按钮的方形触发区, 也是工具栏高度 */
+        const val PANEL_CONTROL_SIZE_DP = 40
+        /** 面板最小宽高就是球本身 */
+        const val MIN_PANEL_SIZE_DP = 40
     }
 }

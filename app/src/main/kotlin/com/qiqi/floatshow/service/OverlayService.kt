@@ -28,7 +28,6 @@ import com.qiqi.floatshow.R
 import com.qiqi.floatshow.data.SettingsRepository
 import com.qiqi.floatshow.overlay.CrosshairView
 import com.qiqi.floatshow.overlay.PanelGeometry
-import com.qiqi.floatshow.overlay.PanelLayout
 import com.qiqi.floatshow.overlay.PanelWindow
 
 /**
@@ -208,52 +207,50 @@ class OverlayService : Service() {
         val ballPx = dpToPx(SettingsRepository.PANEL_BALL_SIZE_DP, density)
         val minPx = dpToPx(SettingsRepository.MIN_PANEL_SIZE_DP, density)
         val restoreWidth = settings.panelWidthPx.takeIf { it > 0 }
+            ?.coerceAtLeast(minPx)
             ?: dpToPx(SettingsRepository.DEFAULT_PANEL_WIDTH_DP, density)
         val restoreHeight = settings.panelHeightPx.takeIf { it > 0 }
+            ?.coerceAtLeast(minPx)
             ?: dpToPx(SettingsRepository.DEFAULT_PANEL_HEIGHT_DP, density)
 
-        val savedX = settings.panelX.takeUnless { it == SettingsRepository.UNSET_POSITION }
-        val savedY = settings.panelY.takeUnless { it == SettingsRepository.UNSET_POSITION }
         val expanded = settings.panelExpanded
-        val geometry = if (expanded) {
-            PanelGeometry(
-                x = savedX ?: ((screenWidth - restoreWidth) / 2),
-                y = savedY ?: ((screenHeight - restoreHeight) / 2),
-                width = restoreWidth,
-                height = restoreHeight
-            )
-        } else {
-            // 收缩态: 位置是悬浮球的左上角
-            PanelGeometry(
-                x = savedX ?: (screenWidth - ballPx) / 2,
-                y = savedY ?: (screenHeight - ballPx) / 2,
-                width = ballPx,
-                height = ballPx
-            )
-        }.let { PanelLayout.clamp(it, screenWidth, screenHeight) }
+        // 两种几何分开存: 收成球不会覆盖面板自己的位置与尺寸
+        val panelGeometry = PanelGeometry(
+            x = settings.panelX.takeUnless { it == SettingsRepository.UNSET_POSITION }
+                ?: ((screenWidth - restoreWidth) / 2),
+            y = settings.panelY.takeUnless { it == SettingsRepository.UNSET_POSITION }
+                ?: ((screenHeight - restoreHeight) / 2),
+            width = restoreWidth,
+            height = restoreHeight
+        )
+        val ballGeometry = PanelGeometry(
+            x = settings.panelBallX.takeUnless { it == SettingsRepository.UNSET_POSITION }
+                ?: (screenWidth - ballPx - dpToPx(24, density)),
+            y = settings.panelBallY.takeUnless { it == SettingsRepository.UNSET_POSITION }
+                ?: dpToPx(24, density),
+            width = ballPx,
+            height = ballPx
+        )
 
         panel = PanelWindow(
             service = this,
-            lifecycleOwner = lifecycleOwner,
-            initial = geometry,
+            initialPanel = panelGeometry,
+            initialBall = ballGeometry,
             expandedInitially = expanded,
             toolbarAtBottomInitially = settings.panelToolbarAtBottom,
             ballSizePx = ballPx,
             controlSizePx = controlPx,
             minSizePx = minPx,
-            restoreWidthPx = restoreWidth,
-            restoreHeightPx = restoreHeight,
-            screenSize = ::screenSize,
-            onCommitted = { geo, isExpanded, toolbarBottom ->
+            onState = { state ->
                 settings.editing {
-                    putBoolean(SettingsRepository.KEY_PANEL_EXPANDED, isExpanded)
-                    putBoolean(SettingsRepository.KEY_PANEL_TOOLBAR_BOTTOM, toolbarBottom)
-                    putInt(SettingsRepository.KEY_PANEL_X, geo.x)
-                    putInt(SettingsRepository.KEY_PANEL_Y, geo.y)
-                    if (isExpanded) {
-                        putInt(SettingsRepository.KEY_PANEL_WIDTH, geo.width)
-                        putInt(SettingsRepository.KEY_PANEL_HEIGHT, geo.height)
-                    }
+                    putBoolean(SettingsRepository.KEY_PANEL_EXPANDED, state.expanded)
+                    putBoolean(SettingsRepository.KEY_PANEL_TOOLBAR_BOTTOM, state.toolbarAtBottom)
+                    putInt(SettingsRepository.KEY_PANEL_X, state.panel.x)
+                    putInt(SettingsRepository.KEY_PANEL_Y, state.panel.y)
+                    putInt(SettingsRepository.KEY_PANEL_WIDTH, state.panel.width)
+                    putInt(SettingsRepository.KEY_PANEL_HEIGHT, state.panel.height)
+                    putInt(SettingsRepository.KEY_PANEL_BALL_X, state.ball.x)
+                    putInt(SettingsRepository.KEY_PANEL_BALL_Y, state.ball.y)
                 }
             },
             onClose = { settings.panelEnabled = false }

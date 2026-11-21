@@ -1,137 +1,672 @@
 package com.qiqi.floatshow.overlay
 
 import android.app.Service
+import android.content.res.Configuration
+import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewGroup
 import android.view.WindowManager
-import androidx.compose.ui.platform.ComposeView
-import androidx.lifecycle.setViewTreeLifecycleOwner
-import androidx.lifecycle.setViewTreeViewModelStoreOwner
-import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import com.qiqi.floatshow.service.OverlayLifecycleOwner
-import com.qiqi.floatshow.ui.OverlayPanelContent
-import com.qiqi.floatshow.ui.theme.FloatshowTheme
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
+import com.qiqi.floatshow.R
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
-/** 窗口几何, 单位 px */
-data class PanelGeometry(val x: Int, val y: Int, val width: Int, val height: Int)
+/** 面板与球的状态, 交回 Service 持久化 */
+data class PanelState(
+    val panel: PanelGeometry,
+    val ball: PanelGeometry,
+    val expanded: Boolean,
+    val toolbarAtBottom: Boolean
+)
 
 /**
- * 面板窗口. 窗口尺寸为精确像素值, 球态与展开态只是两个不同的几何.
+ * 悬浮面板的窗口层. 两个窗口:
+ *  · 球窗口: 40dp 白底圆, 内嵌应用图标, 单击展开
+ *  · 面板窗口: 无圆角, 工具栏 + 内容区 + 四边三角手柄
  *
- * 几何的唯一真相在 Compose 侧; 这里只负责把它套到窗口上:
- * 同一帧内多次修改合并成一次 updateViewLayout, 避免跨进程调用堆积.
+ * 全部用原生 View 实现, 不走 Compose: 拖动缩放是每帧改窗口参数, Compose 的重组在这里是纯开销.
+ *
+ * 跟手收起沿用成熟做法: 面板窗口只设 INVISIBLE 而不是移除, 因为移除正在接收触摸的 View
+ * 会让系统发 CANCEL, 手指一抬起拖动就断. 球另开一个窗口, 触摸流仍留在面板窗口里.
  */
 class PanelWindow(
     private val service: Service,
-    private val lifecycleOwner: OverlayLifecycleOwner,
-    private val initial: PanelGeometry,
+    private val initialPanel: PanelGeometry,
+    private val initialBall: PanelGeometry,
     private val expandedInitially: Boolean,
     private val toolbarAtBottomInitially: Boolean,
     private val ballSizePx: Int,
     private val controlSizePx: Int,
     private val minSizePx: Int,
-    private val restoreWidthPx: Int,
-    private val restoreHeightPx: Int,
-    private val screenSize: () -> Pair<Int, Int>,
-    private val onCommitted: (PanelGeometry, Boolean, Boolean) -> Unit,
+    private val onState: (PanelState) -> Unit,
     private val onClose: () -> Unit
 ) {
 
-    private val windowManager = service.getSystemService(Service.WINDOW_SERVICE) as WindowManager
+    private val wm = service.getSystemService(Service.WINDOW_SERVICE) as WindowManager
+    private val density = service.resources.displayMetrics.density
+    private val touchSlop = ViewConfiguration.get(service).scaledTouchSlop
+    private val statusBarInset = statusBarHeight()
 
-    private var params: WindowManager.LayoutParams? = null
-    private var view: ComposeView? = null
+    /** 面板几何(px). 收起成球时仍然保留, 再次展开就按它还原 */
+    private var panel = initialPanel
+    /** 球几何(px), 与面板位置分开存 */
+    private var ball = initialBall
+    private var expanded = expandedInitially
+    private var toolbarAtBottom = toolbarAtBottomInitially
 
-    /** 窗口当前已经套用的几何(不参与 Compose 重组) */
-    private var applied = initial
-    /** 待套用的最新几何 */
-    private var target = initial
-    private var pendingApply = false
+    private var ballParams: WindowManager.LayoutParams? = null
+    private var ballView: BallView? = null
 
-    private val applyRunnable = Runnable {
-        pendingApply = false
-        applyGeometry()
-    }
+    private var panelParams: WindowManager.LayoutParams? = null
+    private var panelView: FrameLayout? = null
+    private var bar: LinearLayout? = null
+    private var barParams: FrameLayout.LayoutParams? = null
+    private var contentView: View? = null
+    private var contentParams: FrameLayout.LayoutParams? = null
+    private var titleView: TextView? = null
+    private var minimizeView: ImageView? = null
 
-    val isShowing: Boolean get() = view != null
+    private val cornerGrips = mutableListOf<View>()
+    private val edgeGrips = mutableListOf<View>()
+
+    // 拖动 / 缩放共用
+    private var downRawX = 0f
+    private var downRawY = 0f
+    private var startPanelX = 0
+    private var startPanelY = 0
+    private var startPanelGeometry = initialPanel
+    private var dragging = false
+    private var followingPointer = false
+    private var resizeGrip = PanelGrip.RIGHT_BOTTOM
+    private var downOnBar = false
+
+    val isShowing: Boolean get() = ballView != null || panelView != null
+
+    // ── 展示 ────────────────────────────────────────────────
 
     fun show() {
-        if (view != null) return
-
-        val layoutParams = WindowManager.LayoutParams(
-            initial.width,
-            initial.height,
-            overlayWindowType(),
-            // 不抢焦点, 所以不会弹输入法也不会打断别处的光标
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = initial.x
-            y = initial.y
-        }
-
-        val composeView = ComposeView(service).apply {
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            setViewTreeLifecycleOwner(lifecycleOwner)
-            setViewTreeViewModelStoreOwner(lifecycleOwner)
-            setViewTreeSavedStateRegistryOwner(lifecycleOwner)
-            setContent {
-                FloatshowTheme {
-                    val (screenWidth, screenHeight) = screenSize()
-                    OverlayPanelContent(
-                        geometry = initial,
-                        expandedInitially = expandedInitially,
-                        toolbarAtBottomInitially = toolbarAtBottomInitially,
-                        screenWidth = screenWidth,
-                        screenHeight = screenHeight,
-                        ballSizePx = ballSizePx,
-                        controlSizePx = controlSizePx,
-                        minSizePx = minSizePx,
-                        restoreWidthPx = restoreWidthPx,
-                        restoreHeightPx = restoreHeightPx,
-                        onGeometry = ::applyGeometry,
-                        onCommit = onCommitted,
-                        onClose = onClose
-                    )
-                }
-            }
-        }
-
-        windowManager.addView(composeView, layoutParams)
-        params = layoutParams
-        view = composeView
+        if (expanded) showPanelWindow(panel) else showBallWindow(ball)
     }
 
-    /** Compose 算出的新几何, 合并在下一帧套用 */
-    fun applyGeometry(new: PanelGeometry) {
-        if (target == new) return
-        target = new
-        if (pendingApply) return
-        pendingApply = true
-        view?.postOnAnimation(applyRunnable)
+    private fun showBallWindow(geometry: PanelGeometry) {
+        if (ballView != null) {
+            ball = geometry
+            return
+        }
+        val (screenWidth, screenHeight) = screenSize()
+        ball = clampBall(geometry.copy(width = ballSizePx, height = ballSizePx), screenWidth, screenHeight)
+
+        val view = BallView(service).apply {
+            setOnTouchListener(ballTouchListener)
+        }
+        val params = windowParams(ballSizePx, ballSizePx, layoutNoLimits = false).apply {
+            x = ball.x
+            y = ball.y
+        }
+        runCatching { wm.addView(view, params) }
+            .onFailure { return }
+        ballView = view
+        ballParams = params
     }
 
-    private fun applyGeometry() {
-        val p = params ?: return
-        val v = view ?: return
-        val g = target
-        if (applied == g) return
-        applied = g
-        p.x = g.x
-        p.y = g.y
-        p.width = g.width
-        p.height = g.height
-        runCatching { windowManager.updateViewLayout(v, p) }
+    private fun removeBallWindow() {
+        val v = ballView ?: return
+        v.setOnTouchListener(null)
+        runCatching { wm.removeView(v) }
+        ballView = null
+        ballParams = null
+    }
+
+    private fun showPanelWindow(geometry: PanelGeometry) {
+        if (panelView != null) {
+            panel = geometry
+            return
+        }
+        panel = geometry
+        val (screenWidth, screenHeight) = screenSize()
+        panel = PanelLayout.clamp(geometry, screenWidth, screenHeight)
+
+        val root = FrameLayout(service)
+        root.clipsToBounds = false
+        root.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 0f
+            setColor(panelColor())
+            setStroke((density).toInt().coerceAtLeast(1), strokeColor())
+        }
+
+        val content = PanelContentHost.build(service)
+        val contentLp = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ).apply { topMargin = controlSizePx }
+        root.addView(content, contentLp)
+        contentView = content
+        contentParams = contentLp
+
+        val barView = buildBar()
+        val barLp = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            controlSizePx
+        ).apply { gravity = Gravity.TOP }
+        root.addView(barView, barLp)
+        bar = barView
+        barParams = barLp
+
+        // 边缘手柄: 只用来整体移动, 不改变尺寸
+        val edgeThickness = (controlSizePx * 2 / 3).coerceAtLeast(1)
+        repeat(3) {
+            val edge = View(service)
+            edge.setOnTouchListener(dragListener)
+            root.addView(edge, FrameLayout.LayoutParams(0, 0))
+            edgeGrips += edge
+        }
+        // 角手柄: 缩放, 尺寸就是关闭按钮那一格, 压在边缘手柄之上
+        repeat(3) {
+            val corner = View(service)
+            corner.setOnTouchListener(resizeListener)
+            root.addView(corner, FrameLayout.LayoutParams(controlSizePx, controlSizePx))
+            cornerGrips += corner
+        }
+        edgeThicknessPx = edgeThickness
+
+        val params = windowParams(panel.width, panel.height, layoutNoLimits = true).apply {
+            x = panel.x
+            y = panel.y
+        }
+        runCatching { wm.addView(root, params) }
+            .onFailure { return }
+        panelView = root
+        panelParams = params
+
+        setBarAtBottom(toolbarAtBottom, force = true)
+        updateBarOverflow(panel.width)
+    }
+
+    private var edgeThicknessPx = 1
+
+    private fun removePanelWindow() {
+        val v = panelView ?: return
+        bar?.setOnTouchListener(null)
+        edgeGrips.forEach { it.setOnTouchListener(null) }
+        cornerGrips.forEach { it.setOnTouchListener(null) }
+        cornerGrips.clear()
+        edgeGrips.clear()
+        runCatching { wm.removeView(v) }
+        panelView = null
+        panelParams = null
+        bar = null
+        barParams = null
+        contentView = null
+        contentParams = null
+        titleView = null
+        minimizeView = null
     }
 
     fun remove() {
-        view?.let { runCatching { windowManager.removeView(it) } }
-        view?.removeCallbacks(applyRunnable)
-        view = null
-        params = null
+        removeBallWindow()
+        removePanelWindow()
+    }
+
+    // ── 工具栏 ──────────────────────────────────────────────
+
+    private fun buildBar(): LinearLayout {
+        val barView = LinearLayout(service).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), 0, 0, 0)
+            setOnTouchListener(dragListener)
+        }
+
+        val title = TextView(service).apply {
+            text = service.getString(R.string.panel_title)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(inkColor())
+        }
+        barView.addView(
+            title,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        titleView = title
+
+        val minimize = barButton(R.drawable.ic_panel_minimize, inkColor()) { collapseToBall() }
+        barView.addView(minimize)
+        minimizeView = minimize
+
+        // 关闭按钮优先级最高: 宽度不够时它永远在
+        val close = barButton(R.drawable.ic_panel_close, Color.argb(255, 220, 80, 80)) { onClose() }
+        barView.addView(close)
+
+        return barView
+    }
+
+    /**
+     * 工具栏按钮: 图标 20dp, 触发区是整块 controlSize. 用 ImageView 而不是 Compose 的 IconButton,
+     * 因为这里的尺寸单位是精确像素, 不能跟着系统字体缩放.
+     */
+    private fun barButton(iconRes: Int, tint: Int, onClick: () -> Unit): ImageView {
+        val size = controlSizePx
+        val pad = (size - dp(20)) / 2
+        return ImageView(service).apply {
+            setImageResource(iconRes)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setColorFilter(tint)
+            setPadding(pad, pad, pad, pad)
+            isClickable = true
+            isFocusable = false
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(size, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+    }
+
+    /** 工具栏换到顶部/底部, 内容区与手柄跟着换位 */
+    private fun setBarAtBottom(bottom: Boolean, force: Boolean = false) {
+        if (!force && bottom == toolbarAtBottom) return
+        toolbarAtBottom = bottom
+
+        val root = panelView ?: return
+        val barView = bar ?: return
+        val barLp = barParams ?: return
+        val contentLp = contentParams ?: return
+
+        barLp.gravity = if (bottom) Gravity.BOTTOM else Gravity.TOP
+        root.updateViewLayout(barView, barLp)
+        contentLp.topMargin = if (bottom) 0 else controlSizePx
+        contentView?.let { root.updateViewLayout(it, contentLp) }
+
+        updateGripLayout()
+    }
+
+    /** 手柄位置: 边缘贴着不含工具栏的三条边, 角压在关闭按钮对面 */
+    private fun updateGripLayout() {
+        val root = panelView ?: return
+        val w = panel.width
+        val h = panel.height
+        val t = edgeThicknessPx
+        val c = controlSizePx
+
+        // 边缘: 工具栏所在的那条边不放手柄, 否则会压住最小化/关闭
+        val edges = PanelLayout.edgeGrips(toolbarAtBottom)
+        edgeGrips.forEachIndexed { index, view ->
+            val grip = edges.getOrNull(index) ?: return@forEachIndexed
+            view.visibility = View.VISIBLE
+            val lp = when (grip) {
+                PanelGrip.LEFT_EDGE -> FrameLayout.LayoutParams(t, h)
+                    .apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL }
+                PanelGrip.RIGHT_EDGE -> FrameLayout.LayoutParams(t, h)
+                    .apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
+                PanelGrip.TOP_EDGE -> FrameLayout.LayoutParams(w, t)
+                    .apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL }
+                PanelGrip.BOTTOM_EDGE -> FrameLayout.LayoutParams(w, t)
+                    .apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL }
+                else -> FrameLayout.LayoutParams(0, 0)
+            }
+            root.updateViewLayout(view, lp)
+        }
+
+        val corners = PanelLayout.cornerGrips(toolbarAtBottom)
+        cornerGrips.forEachIndexed { index, view ->
+            val grip = corners.getOrNull(index) ?: return@forEachIndexed
+            val lp = FrameLayout.LayoutParams(c, c).apply {
+                gravity = when (grip) {
+                    PanelGrip.LEFT_TOP -> Gravity.TOP or Gravity.START
+                    PanelGrip.RIGHT_TOP -> Gravity.TOP or Gravity.END
+                    PanelGrip.LEFT_BOTTOM -> Gravity.BOTTOM or Gravity.START
+                    PanelGrip.RIGHT_BOTTOM -> Gravity.BOTTOM or Gravity.END
+                    else -> Gravity.TOP or Gravity.START
+                }
+            }
+            root.updateViewLayout(view, lp)
+            view.tag = grip
+        }
+    }
+
+    /** 宽度不够时先收标题, 最小化与关闭永远保留 */
+    private fun updateBarOverflow(widthPx: Int) {
+        val unit = controlSizePx
+        val title = titleView ?: return
+        val available = widthPx - dp(8)
+        title.visibility = if (available >= unit * 2 + unit) View.VISIBLE else View.GONE
+    }
+
+    // ── 触摸: 球 ────────────────────────────────────────────
+
+    private val ballTouchListener = View.OnTouchListener { _, event ->
+        val params = ballParams ?: return@OnTouchListener false
+        val view = ballView ?: return@OnTouchListener false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downRawX = event.rawX
+                downRawY = event.rawY
+                startPanelX = params.x
+                startPanelY = params.y
+                dragging = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = (event.rawX - downRawX).toInt()
+                val dy = (event.rawY - downRawY).toInt()
+                if (!dragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) dragging = true
+                if (dragging) {
+                    val (screenWidth, screenHeight) = screenSize()
+                    ball = clampBall(
+                        PanelGeometry(startPanelX + dx, startPanelY + dy, ballSizePx, ballSizePx),
+                        screenWidth, screenHeight
+                    )
+                    params.x = ball.x
+                    params.y = ball.y
+                    runCatching { wm.updateViewLayout(view, params) }
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!dragging) {
+                    expandFromBall()
+                } else {
+                    commit()
+                }
+                dragging = false
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                dragging = false
+                commit()
+            }
+        }
+        true
+    }
+
+    /** 以球心为锚点展开: 球在九宫格哪一格, 窗口就用同一格对应的角去对齐 */
+    private fun expandFromBall() {
+        val centerX = ball.x + ballSizePx / 2
+        val centerY = ball.y + ballSizePx / 2
+        val (screenWidth, screenHeight) = screenSize()
+        var w = panel.width
+        var h = panel.height
+        if (w < minSizePx) w = minSizePx
+        if (h < minSizePx) h = minSizePx
+
+        val col = when {
+            centerX < screenWidth / 3 -> 0
+            centerX < screenWidth * 2 / 3 -> 1
+            else -> 2
+        }
+        val row = when {
+            centerY < screenHeight / 3 -> 0
+            centerY < screenHeight * 2 / 3 -> 1
+            else -> 2
+        }
+        var x = when (col) {
+            0 -> centerX - ballSizePx / 2
+            1 -> centerX - w / 2
+            else -> centerX + ballSizePx / 2 - w
+        }
+        var y = when (row) {
+            0 -> centerY - ballSizePx / 2
+            1 -> centerY - h / 2
+            else -> centerY + ballSizePx / 2 - h
+        }
+
+        // 避让状态栏: 展开后工具栏若落在状态栏下面, 把窗口整体往下推到状态栏下沿
+        y = max(y, statusBarInset)
+
+        var geometry = PanelLayout.clamp(
+            PanelGeometry(x, y, w, h), screenWidth, screenHeight
+        )
+        if (!barVisibleAt(geometry)) {
+            // 锚点位置放不下时退回默认位置, 保证工具栏一定可见
+            geometry = PanelLayout.clamp(
+                PanelGeometry(
+                    (screenWidth * 0.15f).toInt(),
+                    statusBarInset + dp(8),
+                    w, h
+                ), screenWidth, screenHeight
+            )
+            setBarAtBottom(false, force = true)
+        }
+
+        removeBallWindow()
+        expanded = true
+        showPanelWindow(geometry)
+        commit()
+    }
+
+    // ── 触摸: 面板拖动 / 缩放 ────────────────────────────────
+
+    /** 工具栏与边缘共用: 只整体移动, 不改尺寸 */
+    private val dragListener = View.OnTouchListener { _, event ->
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downRawX = event.rawX
+                downRawY = event.rawY
+                startPanelX = panel.x
+                startPanelY = panel.y
+                startPanelGeometry = panel
+                dragging = false
+                downOnBar = true
+            }
+            MotionEvent.ACTION_MOVE -> handleDragMove(event)
+            MotionEvent.ACTION_UP -> {
+                if (!dragging && !followingPointer) {
+                    // 没拖动就是点了工具栏空白处, 不做任何事; 按钮有自己的点击处理
+                } else if (followingPointer) {
+                    removePanelWindow()
+                    commit()
+                } else {
+                    commit()
+                }
+                dragging = false
+                followingPointer = false
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                dragging = false
+                followingPointer = false
+            }
+        }
+        true
+    }
+
+    private fun handleDragMove(event: MotionEvent) {
+        val dx = (event.rawX - downRawX).toInt()
+        val dy = (event.rawY - downRawY).toInt()
+        if (!dragging && !followingPointer && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+            dragging = true
+        }
+        if (!dragging && !followingPointer) return
+
+        if (followingPointer) {
+            followBall(event.rawX, event.rawY)
+            return
+        }
+
+        val (screenWidth, screenHeight) = screenSize()
+        val moved = panel.copy(x = startPanelX + dx, y = startPanelY + dy)
+        val clamped = PanelLayout.clamp(moved, screenWidth, screenHeight)
+
+        // 翻转判断只在这个方向上有意义: 顶边进顶区翻到底部, 底边进底区翻回顶部
+        val wantBottom = PanelLayout.nextToolbarAtBottom(toolbarAtBottom, clamped, screenHeight)
+        if (wantBottom != toolbarAtBottom) setBarAtBottom(wantBottom)
+
+        if (!barVisibleAt(clamped)) {
+            // 工具栏完全看不见了: 收成球, 球跟着手指走
+            followPointerAsBall(event.rawX, event.rawY)
+            return
+        }
+
+        panel = clamped
+        applyPanelGeometry()
+    }
+
+    /** 面板拖到工具栏不可见时, 先把自己藏起来(不移除), 再用球窗口跟手 */
+    private fun followPointerAsBall(rawX: Float, rawY: Float) {
+        panelView?.visibility = View.INVISIBLE
+        showBallWindow(
+            PanelGeometry(
+                (rawX - ballSizePx / 2).toInt(),
+                (rawY - ballSizePx / 2).toInt(),
+                ballSizePx, ballSizePx
+            )
+        )
+        followingPointer = true
+    }
+
+    /** 球跟手, 回到能放下的位置就自己展开 */
+    private fun followBall(rawX: Float, rawY: Float) {
+        val params = ballParams ?: return
+        val view = ballView ?: return
+        val (screenWidth, screenHeight) = screenSize()
+        ball = clampBall(
+            PanelGeometry(
+                (rawX - ballSizePx / 2).toInt(),
+                (rawY - ballSizePx / 2).toInt(),
+                ballSizePx, ballSizePx
+            ), screenWidth, screenHeight
+        )
+        params.x = ball.x
+        params.y = ball.y
+        runCatching { wm.updateViewLayout(view, params) }
+
+        // 手指回到能让窗口放下来的位置, 自主展开
+        val centerX = ball.x + ballSizePx / 2
+        val centerY = ball.y + ballSizePx / 2
+        val target = PanelLayout.clamp(
+            anchorPanel(centerX, centerY, panel.width, panel.height, screenWidth, screenHeight),
+            screenWidth, screenHeight
+        )
+        if (!barVisibleAt(target)) return
+
+        removeBallWindow()
+        followingPointer = false
+        panelView?.visibility = View.VISIBLE
+        panel = target
+        applyPanelGeometry()
+        setBarAtBottom(PanelLayout.nextToolbarAtBottom(toolbarAtBottom, target, screenHeight))
+    }
+
+    private val resizeListener = View.OnTouchListener { view, event ->
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downRawX = event.rawX
+                downRawY = event.rawY
+                startPanelGeometry = panel
+                resizeGrip = (view.tag as? PanelGrip) ?: PanelGrip.RIGHT_BOTTOM
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.rawX - downRawX
+                val dy = event.rawY - downRawY
+                val (screenWidth, screenHeight) = screenSize()
+                val result = PanelLayout.resize(
+                    grip = resizeGrip,
+                    start = startPanelGeometry,
+                    dx = dx,
+                    dy = dy,
+                    minSize = minSizePx,
+                    maxSize = min(screenWidth, screenHeight)
+                )
+                // 越界后手柄换到了对面: 记住它, 后续手势接着用新的那个
+                if (result.grip != resizeGrip) {
+                    resizeGrip = result.grip
+                }
+                panel = PanelLayout.clamp(result.geometry, screenWidth, screenHeight)
+                applyPanelGeometry()
+
+                // 纵向翻转时把工具栏换到另一边, 避免手柄压在关闭按钮上
+                setBarAtBottom(
+                    PanelLayout.nextToolbarAtBottom(toolbarAtBottom, panel, screenHeight)
+                )
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> commit()
+        }
+        true
+    }
+
+    // ── 收起 / 提交 ──────────────────────────────────────────
+
+    /** 最小化: 球落在最小化按钮原来的屏幕位置 */
+    private fun collapseToBall() {
+        if (!expanded) return
+        val minimize = minimizeView
+        val loc = IntArray(2)
+        val minimizeX: Int
+        val minimizeY: Int
+        if (minimize != null) {
+            minimize.getLocationOnScreen(loc)
+            minimizeX = loc[0]
+            minimizeY = loc[1]
+        } else {
+            minimizeX = panel.x + panel.width - controlSizePx * 2
+            minimizeY = if (toolbarAtBottom) panel.y + panel.height - controlSizePx else panel.y
+        }
+
+        removePanelWindow()
+        expanded = false
+        showBallWindow(
+            PanelGeometry(
+                minimizeX + (controlSizePx - ballSizePx) / 2,
+                minimizeY + (controlSizePx - ballSizePx) / 2,
+                ballSizePx, ballSizePx
+            )
+        )
+        commit()
+    }
+
+    private fun applyPanelGeometry() {
+        val params = panelParams ?: return
+        val view = panelView ?: return
+        if (params.width == panel.width && params.height == panel.height &&
+            params.x == panel.x && params.y == panel.y
+        ) return
+        params.width = panel.width
+        params.height = panel.height
+        params.x = panel.x
+        params.y = panel.y
+        runCatching { wm.updateViewLayout(view, params) }
+        updateBarOverflow(panel.width)
+        updateGripLayout()
+    }
+
+    private fun commit() {
+        val (screenWidth, screenHeight) = screenSize()
+        val clampedPanel = PanelLayout.clamp(panel, screenWidth, screenHeight)
+        val clampedBall = clampBall(ball, screenWidth, screenHeight)
+        panel = clampedPanel
+        ball = clampedBall
+        onState(PanelState(clampedPanel, clampedBall, expanded, toolbarAtBottom))
+    }
+
+    // ── 小工具 ──────────────────────────────────────────────
+
+    private fun windowParams(
+        width: Int,
+        height: Int,
+        layoutNoLimits: Boolean
+    ): WindowManager.LayoutParams {
+        var flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        if (layoutNoLimits) flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        val params = WindowManager.LayoutParams(
+            width,
+            height,
+            overlayWindowType(),
+            flags,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
+        return params
     }
 
     private fun overlayWindowType(): Int =
@@ -141,4 +676,89 @@ class PanelWindow(
             @Suppress("DEPRECATION")
             WindowManager.LayoutParams.TYPE_PHONE
         }
+
+    private fun screenSize(): Pair<Int, Int> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = wm.currentWindowMetrics.bounds
+            bounds.width() to bounds.height()
+        } else {
+            @Suppress("DEPRECATION")
+            val metrics = service.resources.displayMetrics
+            metrics.widthPixels to metrics.heightPixels
+        }
+
+    /**
+     * 球的可用范围: 横向贴屏幕两边, 纵向不能钻进状态栏.
+     * 浮在状态栏底下时触摸会被状态栏先吃掉, 球就再也拖不动了.
+     */
+    private fun clampBall(geometry: PanelGeometry, screenWidth: Int, screenHeight: Int): PanelGeometry {
+        val x = geometry.x.coerceIn(0, max(0, screenWidth - geometry.width))
+        val y = geometry.y.coerceIn(statusBarInset, max(statusBarInset, screenHeight - geometry.height))
+        return geometry.copy(x = x, y = y)
+    }
+
+    /** 以球心为锚点算面板位置: 球在哪一格, 面板就用那一格对应的角去对齐 */
+    private fun anchorPanel(
+        centerX: Int,
+        centerY: Int,
+        w: Int,
+        h: Int,
+        screenWidth: Int,
+        screenHeight: Int
+    ): PanelGeometry {
+        val col = when {
+            centerX < screenWidth / 3 -> 0
+            centerX < screenWidth * 2 / 3 -> 1
+            else -> 2
+        }
+        val row = when {
+            centerY < screenHeight / 3 -> 0
+            centerY < screenHeight * 2 / 3 -> 1
+            else -> 2
+        }
+        val x = when (col) {
+            0 -> centerX - ballSizePx / 2
+            1 -> centerX - w / 2
+            else -> centerX + ballSizePx / 2 - w
+        }
+        val y = when (row) {
+            0 -> centerY - ballSizePx / 2
+            1 -> centerY - h / 2
+            else -> centerY + ballSizePx / 2 - h
+        }
+        return PanelGeometry(x, y, w, h)
+    }
+
+    /** 工具栏(在顶部或底部)是否还能看见一点 */
+    private fun barVisibleAt(geometry: PanelGeometry): Boolean {
+        val barTop = if (toolbarAtBottom) geometry.y + geometry.height - controlSizePx else geometry.y
+        val barBottom = barTop + controlSizePx
+        return barBottom > 0 && barTop < service.resources.displayMetrics.heightPixels
+    }
+
+    private fun statusBarHeight(): Int {
+        val id = service.resources.getIdentifier("status_bar_height", "dimen", "android")
+        val px = if (id > 0) service.resources.getDimensionPixelSize(id) else 0
+        return if (px > 0) px else dp(24)
+    }
+
+    private fun panelColor(): Int {
+        val night = (service.resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        return if (night) Color.argb(240, 24, 24, 26) else Color.argb(245, 252, 252, 252)
+    }
+
+    private fun strokeColor(): Int {
+        val night = (service.resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        return if (night) Color.argb(90, 255, 255, 255) else Color.argb(40, 0, 0, 0)
+    }
+
+    private fun inkColor(): Int {
+        val night = (service.resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        return if (night) Color.argb(255, 230, 230, 230) else Color.argb(255, 40, 40, 40)
+    }
+
+    private fun dp(value: Int): Int = (value * density).toInt()
 }
