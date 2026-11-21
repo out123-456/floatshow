@@ -92,6 +92,9 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
     var renameError by remember { mutableStateOf(false) }
     var toastText by remember { mutableStateOf<Int?>(null) }
     var pendingImportKind by remember { mutableStateOf(PanelLayerKind.IMAGE) }
+    var openedLayerId by remember { mutableStateOf<String?>(null) }
+    var zoomUri by remember { mutableStateOf<Uri?>(null) }
+    var replacingLayerId by remember { mutableStateOf<String?>(null) }
 
     // 服务会写 serviceRunning, 面板也会自己写 panelEnabled(在面板上关掉时),
     // 这里跟着刷新, 否则主界面开关会一直停在旧状态
@@ -153,7 +156,8 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         settings.panelLayers = next
     }
 
-    fun importLayer(uri: Uri, kind: PanelLayerKind) {
+    /** [replaceId] 非空时是替换这一层的内容(类型可变, 层级与名字不变) */
+    fun importLayer(uri: Uri, kind: PanelLayerKind, replaceId: String? = null) {
         runCatching {
             context.contentResolver.takePersistableUriPermission(
                 uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -166,12 +170,13 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                     return
                 }
                 val layer = PanelLayer(
-                    id = java.util.UUID.randomUUID().toString(),
+                    id = replaceId ?: java.util.UUID.randomUUID().toString(),
                     name = PanelContentPicker.textFileName(context, uri) ?: "",
                     kind = PanelLayerKind.IMAGE,
                     content = uri.toString()
                 )
-                updateLayers { PanelLayers.add(it, layer) }
+                if (replaceId != null) updateLayers { PanelLayers.replaceWith(it, replaceId, layer) }
+                else updateLayers { PanelLayers.add(it, layer) }
             }
             PanelLayerKind.TEXT -> {
                 if (!PanelContentPicker.isTextFile(context, uri)) {
@@ -184,12 +189,13 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                     return
                 }
                 val layer = PanelLayer(
-                    id = java.util.UUID.randomUUID().toString(),
+                    id = replaceId ?: java.util.UUID.randomUUID().toString(),
                     name = PanelContentPicker.textFileName(context, uri) ?: "",
                     kind = PanelLayerKind.TEXT,
                     content = text
                 )
-                updateLayers { PanelLayers.add(it, layer) }
+                if (replaceId != null) updateLayers { PanelLayers.replaceWith(it, replaceId, layer) }
+                else updateLayers { PanelLayers.add(it, layer) }
             }
         }
     }
@@ -197,7 +203,9 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
     val layerPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        if (uri != null) importLayer(uri, pendingImportKind)
+        val replaceId = replacingLayerId
+        replacingLayerId = null
+        if (uri != null) importLayer(uri, pendingImportKind, replaceId)
     }
 
     val fontPicker = rememberLauncherForActivityResult(
@@ -366,7 +374,7 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                         onToggleBottom = { id -> updateLayers { PanelLayers.togglePinBottom(it, id) } },
                         onToggleFixed = { id -> updateLayers { PanelLayers.toggleFixed(it, id) } },
                         onDelete = { id -> updateLayers { PanelLayers.remove(it, id) } },
-                        onOpenLayer = { },
+                        onOpenLayer = { id -> openedLayerId = id },
                         onRenameLayer = { id ->
                             pendingRenameId = id
                             renameText = layers.firstOrNull { it.id == id }?.name ?: ""
@@ -388,7 +396,36 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            if (showImportKind) {
+            // 层抽屉: 内容预览 / 文本编辑 / 替换 / 删除
+        openedLayerId?.let { id ->
+            val layer = layers.firstOrNull { it.id == id }
+            if (layer == null) {
+                openedLayerId = null
+            } else {
+                LayerSheet(
+                    layer = layer,
+                    onReplace = {
+                        replacingLayerId = id
+                        showImportKind = true
+                    },
+                    onDelete = {
+                        openedLayerId = null
+                        updateLayers { PanelLayers.remove(it, id) }
+                    },
+                    onTextChanged = { newText ->
+                        updateLayers { l -> l.map { if (it.id == id) it.copy(content = newText) else it } }
+                    },
+                    onOpenZoom = { zoomUri = it },
+                    onDismiss = { openedLayerId = null }
+                )
+            }
+        }
+
+        zoomUri?.let { uri ->
+            ZoomableImageDialog(uri = uri, onDismiss = { zoomUri = null })
+        }
+
+        if (showImportKind) {
                 AlertDialog(
                     onDismissRequest = { showImportKind = false },
                     title = { Text(stringResource(R.string.panel_import_kind_title)) },

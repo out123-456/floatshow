@@ -58,6 +58,16 @@
     <string name="panel_font_reset">恢复默认</string>
     <string name="panel_font_bad_type">只支持 .ttf / .otf 字体文件</string>
     <string name="panel_font_failed">字体加载失败, 已回退系统字体</string>
+    <string name="panel_layer_sheet_title">%1$s</string>
+    <string name="panel_layer_sheet_replace">替换内容</string>
+    <string name="panel_layer_sheet_delete">删除这一层</string>
+    <string name="panel_layer_info_image">%1$s · %2$d × %3$d</string>
+    <string name="panel_layer_info_text">%1$s · %2$d 字符</string>
+    <string name="panel_layer_info_loading">读取中…</string>
+    <string name="panel_layer_info_failed">读不出来, 建议删除或替换</string>
+    <string name="panel_layer_edit_hint">这一层的内容</string>
+    <string name="panel_svg_scale">尺寸倍数 %1$s</string>
+    <string name="panel_svg_scale_x">%1$dx</string>
 
     <string name="tile_label">准星开关</string>
 

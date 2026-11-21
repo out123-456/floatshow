@@ -139,6 +139,17 @@ object PanelLayers {
         return index >= 0 && index < layers.lastIndex
     }
 
+    /** 整层替换: 内容与类型都换, 但层级、标记、固定、名字保持原样 */
+    fun replaceWith(layers: List<PanelLayer>, id: String, replacement: PanelLayer): List<PanelLayer> =
+        layers.map {
+            if (it.id == id) replacement.copy(
+                id = it.id,
+                name = it.name,
+                pin = it.pin,
+                fixed = it.fixed
+            ) else it
+        }
+
     /** 替换只换内容, 层级、标记、固定一律不动 */
     fun replaceContent(layers: List<PanelLayer>, id: String, content: String): List<PanelLayer> =
         layers.map { if (it.id == id) it.copy(content = content) else it }
