@@ -94,6 +94,7 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
     var pendingImportKind by remember { mutableStateOf(PanelLayerKind.IMAGE) }
     var openedLayerId by remember { mutableStateOf<String?>(null) }
     var zoomUri by remember { mutableStateOf<Uri?>(null) }
+    var zoomIsSvg by remember { mutableStateOf(false) }
     var replacingLayerId by remember { mutableStateOf<String?>(null) }
 
     // 服务会写 serviceRunning, 面板也会自己写 panelEnabled(在面板上关掉时),
@@ -415,14 +416,21 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                     onTextChanged = { newText ->
                         updateLayers { l -> l.map { if (it.id == id) it.copy(content = newText) else it } }
                     },
-                    onOpenZoom = { zoomUri = it },
+                    onOpenZoom = { u, svg ->
+                        zoomUri = u
+                        zoomIsSvg = svg
+                    },
                     onDismiss = { openedLayerId = null }
                 )
             }
         }
 
         zoomUri?.let { uri ->
-            ZoomableImageDialog(uri = uri, onDismiss = { zoomUri = null })
+            ZoomableImageDialog(
+                uri = uri,
+                isSvg = zoomIsSvg,
+                onDismiss = { zoomUri = null }
+            )
         }
 
         if (showImportKind) {

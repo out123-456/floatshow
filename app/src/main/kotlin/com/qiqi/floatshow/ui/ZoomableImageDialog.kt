@@ -1,104 +1,114 @@
 package com.qiqi.floatshow.ui
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.qiqi.floatshow.R
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
- * 全屏缩放查看器. 双指缩放 + 拖动, 返回退出.
- * 位图同样在后台线程降采样解码, 不把原图整张塞进内存.
+ * 全屏查看器. 位图走 [TileImageView](瓦片按需解码, 支持 1:1 与放大),
+ * SVG 走 [SvgView](矢量放大), 两者都由触摸完成缩放与拖动; SVG 额外提供倍数按钮.
  */
 @Composable
-fun ZoomableImageDialog(uri: Uri, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-
-    // LaunchedEffect 里起线程, remember 只做缓存不适合承担副作用
-    LaunchedEffect(uri) {
-        withContext(Dispatchers.IO) {
-
-            var sample = 1
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            runCatching {
-                context.contentResolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it, null, bounds)
-                }
-            }
-            while (bounds.outWidth / (sample * 2) >= MAX_VIEW_SIDE ||
-                bounds.outHeight / (sample * 2) >= MAX_VIEW_SIDE
-            ) {
-                sample *= 2
-            }
-            val options = BitmapFactory.Options().apply { inSampleSize = sample }
-            bitmap = runCatching {
-                context.contentResolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it, null, options)
-                }
-            }.getOrNull()
-        }
-    }
+fun ZoomableImageDialog(uri: Uri, isSvg: Boolean, onDismiss: () -> Unit) {
+    var svgView by remember { mutableStateOf<SvgView?>(null) }
+    var zoomPercent by remember { mutableStateOf(1f) }
+    var info by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        scale = (scale * zoom).coerceIn(0.5f, 8f)
-                        offset += pan
+        Box(modifier = Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = { context ->
+                    if (isSvg) {
+                        SvgView(context).also { view ->
+                            view.onLoaded = { w, h -> info = w to h }
+                            view.load(uri)
+                            svgView = view
+                        }
+                    } else {
+                        TileImageView(context).also { view ->
+                            view.onLoaded = { w, h -> info = w to h }
+                            view.load(uri)
+                        }
                     }
                 },
-            contentAlignment = Alignment.Center
-        ) {
-            val image = bitmap
-            if (image == null) {
-                Text(stringResource(R.string.panel_layer_info_loading))
-            } else {
-                Image(
-                    bitmap = image.asImageBitmap(),
-                    contentDescription = stringResource(R.string.panel_zoom_title),
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // SVG 倍数按钮: 触摸缩放之外的另一条路
+            if (isSvg) {
+                Row(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer(
-                            scaleX = scale,
-                            scaleY = scale,
-                            translationX = offset.x,
-                            translationY = offset.y
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .padding(top = 32.dp, start = 12.dp, end = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(1f, 2f, 4f, 8f, 16f).forEach { factor ->
+                        FilterChip(
+                            selected = zoomPercent == factor,
+                            onClick = {
+                                svgView?.setZoom(factor)
+                                zoomPercent = factor
+                            },
+                            label = {
+                                Text(
+                                    stringResource(
+                                        R.string.panel_svg_scale_x,
+                                        factor.toInt().toString()
+                                    )
+                                )
+                            }
                         )
+                    }
+                }
+            }
+
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                Text(stringResource(R.string.action_confirm))
+            }
+
+            val size = info
+            if (size != null && size.first > 0) {
+                Text(
+                    text = "${size.first} × ${size.second}",
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(16.dp)
                 )
             }
         }
     }
-}
 
-private const val MAX_VIEW_SIDE = 2048
+    DisposableEffect(uri) {
+        onDispose { svgView?.release() }
+    }
+}

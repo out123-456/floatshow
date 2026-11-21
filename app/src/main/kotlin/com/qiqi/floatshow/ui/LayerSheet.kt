@@ -53,7 +53,7 @@ fun LayerSheet(
     onReplace: () -> Unit,
     onDelete: () -> Unit,
     onTextChanged: (String) -> Unit,
-    onOpenZoom: (Uri) -> Unit,
+    onOpenZoom: (Uri, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -183,7 +183,7 @@ fun LayerSheet(
                             .fillMaxSize()
                             .padding(vertical = 4.dp)
                             .clickable(enabled = uri != null) {
-                                if (uri != null) onOpenZoom(uri)
+                                if (uri != null) onOpenZoom(uri, isSvg)
                             }
                     )
                 }
