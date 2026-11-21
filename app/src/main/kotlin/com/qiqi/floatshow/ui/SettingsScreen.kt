@@ -174,6 +174,39 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         settings.panelLayers = next
     }
 
+    /**
+     * 超过 4096 边长就提示转 Raw. 4096 以下实测感觉不到解码, 转 Raw 只是白占磁盘.
+     * SVG 是矢量, 没有像素可转.
+     */
+    fun maybeAskRaw(uri: Uri) {
+        if (PanelContentPicker.isSvg(context, uri)) return
+        val size = PanelContentPicker.imageSize(context, uri) ?: return
+        if (maxOf(size.first, size.second) < RAW_ASK_SIDE) return
+        if (RawImage.exists(context, uri)) return
+        pendingRawUri = uri
+    }
+
+    /** 当场转换并显示线性进度; 转完把该 uri 记为可用 */
+    fun convertRaw(uri: Uri) {
+        pendingRawUri = null
+        rawProgress = 0
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                RawImage.convert(context, uri) { percent ->
+                    // 进度回调来自后台线程, 转回主线程更新
+                    mainHandler.post { rawProgress = percent }
+                }
+            }
+            rawProgress = null
+            if (ok) {
+                rawReady = rawReady + uri.toString()
+                toastText = R.string.panel_raw_done
+            } else {
+                toastText = R.string.panel_raw_failed
+            }
+        }
+    }
+
     /** [replaceId] 非空时是替换这一层的内容(类型可变, 层级与名字不变) */
     fun importLayer(uri: Uri, kind: PanelLayerKind, replaceId: String? = null) {
         runCatching {
@@ -216,39 +249,6 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 )
                 if (replaceId != null) updateLayers { PanelLayers.replaceWith(it, replaceId, layer) }
                 else updateLayers { PanelLayers.add(it, layer) }
-            }
-        }
-    }
-
-    /**
-     * 超过 4096 边长就提示转 Raw. 4096 以下实测感觉不到解码, 转 Raw 只是白占磁盘.
-     * SVG 是矢量, 没有像素可转.
-     */
-    fun maybeAskRaw(uri: Uri) {
-        if (PanelContentPicker.isSvg(context, uri)) return
-        val size = PanelContentPicker.imageSize(context, uri) ?: return
-        if (maxOf(size.first, size.second) < RAW_ASK_SIDE) return
-        if (RawImage.exists(context, uri)) return
-        pendingRawUri = uri
-    }
-
-    /** 当场转换并显示线性进度; 转完把该 uri 记为可用 */
-    fun convertRaw(uri: Uri) {
-        pendingRawUri = null
-        rawProgress = 0
-        scope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                RawImage.convert(context, uri) { percent ->
-                    // 进度回调来自后台线程, 转回主线程更新
-                    mainHandler.post { rawProgress = percent }
-                }
-            }
-            rawProgress = null
-            if (ok) {
-                rawReady = rawReady + uri.toString()
-                toastText = R.string.panel_raw_done
-            } else {
-                toastText = R.string.panel_raw_failed
             }
         }
     }
