@@ -27,6 +27,11 @@ class LayerPreviewView(context: Context) : View(context) {
     private var svgScale = 1f
     private var token = 0
 
+    // AndroidView 的 update 每次重组都会调用, 相同内容不能重新解码, 否则预览会闪
+    private var loadedUri: Uri? = null
+    private var loadedIsSvg = false
+    private var hasLoaded = false
+
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val dest = RectF()
 
@@ -38,6 +43,15 @@ class LayerPreviewView(context: Context) : View(context) {
         if (svgScale == scale) return
         svgScale = scale
         invalidate()
+    }
+
+    /** 内容没变就不再解码; 只在 uri 或类型真正改变时重新加载 */
+    fun loadIfChanged(uri: Uri?, isSvg: Boolean) {
+        if (hasLoaded && loadedUri == uri && loadedIsSvg == isSvg) return
+        hasLoaded = true
+        loadedUri = uri
+        loadedIsSvg = isSvg
+        load(uri, isSvg)
     }
 
     fun load(uri: Uri?, isSvg: Boolean) {

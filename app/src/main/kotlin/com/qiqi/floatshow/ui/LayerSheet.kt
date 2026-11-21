@@ -172,12 +172,13 @@ fun LayerSheet(
                                     imageSize = w to h
                                     loaded = true
                                 }
-                                view.load(uri, isSvg)
+                                view.loadIfChanged(uri, isSvg)
                             }
                         },
                         update = { view ->
+                            // 只有倍数变化, 不重新解码
                             view.setSvgScale(svgScale)
-                            view.load(uri, isSvg)
+                            view.loadIfChanged(uri, isSvg)
                         },
                         modifier = Modifier
                             .fillMaxSize()

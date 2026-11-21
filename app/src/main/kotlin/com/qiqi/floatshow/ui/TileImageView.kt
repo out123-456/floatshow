@@ -6,6 +6,7 @@ import android.graphics.BitmapRegionDecoder
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.RectF
 import android.net.Uri
 import android.util.LruCache
 import android.view.GestureDetector
@@ -38,9 +39,9 @@ class TileImageView(context: Context) : View(context) {
 
     // 容量按条目数计: 32 块 512×512 ARGB = 约 32MB
     private val tileCache = LruCache<TileKey, Bitmap>(MAX_TILES)
-    private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-    private val src = Rect()
-    private val dst = Rect()
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val dst = RectF()
+    private val tileRectCache = HashMap<TileKey, Rect>()
 
     private val executor = Executors.newSingleThreadExecutor()
     private val pending = HashSet<TileKey>()
@@ -90,6 +91,7 @@ class TileImageView(context: Context) : View(context) {
         token++
         val current = token
         tileCache.evictAll()
+        tileRectCache.clear()
         decoder?.recycle()
         decoder = null
         imageWidth = 0
@@ -175,6 +177,9 @@ class TileImageView(context: Context) : View(context) {
         val lastCol = (viewRight / TILE).toInt().coerceAtMost((imageWidth - 1) / TILE)
         val lastRow = (viewBottom / TILE).toInt().coerceAtMost((imageHeight - 1) / TILE)
 
+        // 缩小才插值; 1:1 与放大用最近邻, 边界像素完整, 不会因采样混出半透明缝
+        paint.isFilterBitmap = scale < 1f
+
         canvas.save()
         canvas.translate(offsetX, offsetY)
         canvas.scale(scale, scale)
@@ -185,12 +190,13 @@ class TileImageView(context: Context) : View(context) {
                 val key = TileKey(col, row)
                 val tile = tileCache.get(key)
                 if (tile != null) {
-                    val tileW = tile.width
-                    val tileH = tile.height
-                    src.set(0, 0, tileW, tileH)
-                    dst.set(col * TILE, row * TILE, col * TILE + tileW, row * TILE + tileH)
-                    canvas.drawBitmap(tile, src, dst, paint)
+                    // 按解码时的扩边矩形绘制(浮点, 与解码矩形的坐标完全相同),
+                    // 相邻瓦片互相覆盖 OVERLAP 像素, 边界上没有缝
+                    val bounds = tileRectCache.getOrPut(key) { tileBounds(key.col, key.row) }
+                    dst.set(bounds)
+                    canvas.drawBitmap(tile, null, dst, paint)
                 } else {
+                    tileRectCache.remove(key)
                     requestTile(decoder, key)
                 }
             }
@@ -201,12 +207,7 @@ class TileImageView(context: Context) : View(context) {
     private fun requestTile(decoder: BitmapRegionDecoder, key: TileKey) {
         if (!pending.add(key)) return
         val current = token
-        val rect = Rect(
-            key.col * TILE,
-            key.row * TILE,
-            minOf((key.col + 1) * TILE, imageWidth),
-            minOf((key.row + 1) * TILE, imageHeight)
-        )
+        val rect = tileBounds(key.col, key.row)
         executor.execute {
             val bitmap = runCatching { decoder.decodeRegion(rect, null) }.getOrNull()
             post {
@@ -223,8 +224,21 @@ class TileImageView(context: Context) : View(context) {
         }
     }
 
+    /**
+     * 一块瓦片实际解码/绘制的矩形: 向四周多取 OVERLAP 像素.
+     * 绘制时用同一矩形, 相邻块的连接处就有一段重叠, 缝隙被覆盖.
+     */
+    private fun tileBounds(col: Int, row: Int): Rect {
+        val left = (col * TILE - OVERLAP).coerceAtLeast(0)
+        val top = (row * TILE - OVERLAP).coerceAtLeast(0)
+        val right = ((col + 1) * TILE + OVERLAP).coerceAtMost(imageWidth)
+        val bottom = ((row + 1) * TILE + OVERLAP).coerceAtMost(imageHeight)
+        return Rect(left, top, right, bottom)
+    }
+
     fun release() {
         token++
+        tileRectCache.clear()
         tileCache.evictAll()
         decoder?.recycle()
         decoder = null
@@ -236,5 +250,8 @@ class TileImageView(context: Context) : View(context) {
     companion object {
         private const val TILE = 512
         private const val MAX_TILES = 32
+
+        /** 瓦片之间的重叠像素, 用来彻底消除拼接缝 */
+        private const val OVERLAP = 2
     }
 }

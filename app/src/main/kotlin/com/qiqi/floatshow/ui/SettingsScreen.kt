@@ -13,6 +13,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -249,9 +250,13 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         notificationsAllowed = notificationsEnabled(context)
     }
 
+    // 状态栏是否被唤出都不改变布局: insets 一律不参与测量,
+    // 否则下拉一下状态栏整页就往下挤一下
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
                     // 设计预览页只在 debug 里留入口, 之后会删
