@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -94,8 +95,15 @@ class PanelWindow(
     private var resizeGrip = PanelGrip.RIGHT_BOTTOM
     private var downOnBar = false
     private var resizeLayoutListener: View.OnLayoutChangeListener? = null
+    private var resizeExpectedLeft = 0
+    private var resizeExpectedTop = 0
     private var resizeExpectedRight = 0
     private var resizeExpectedBottom = 0
+    private var resizeApplyPending = false
+    private val resizeFrameCallback = Choreographer.FrameCallback {
+        resizeApplyPending = false
+        applyPanelGeometry()
+    }
 
     val isShowing: Boolean get() = ballView != null || panelView != null
 
@@ -618,9 +626,10 @@ class PanelWindow(
                     minSize = minSizePx,
                     maxSize = maxSurfacePx
                 )
-                applyPanelGeometry()
+                scheduleResizeGeometryApply()
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                flushResizeGeometryApply()
                 endResizeBoundaryTrace()
                 commit()
             }
@@ -633,20 +642,32 @@ class PanelWindow(
         val view = panelView ?: return
         val initialLocation = IntArray(2)
         view.getLocationOnScreen(initialLocation)
+        resizeExpectedLeft = initialLocation[0]
+        resizeExpectedTop = initialLocation[1]
         resizeExpectedRight = initialLocation[0] + view.width
         resizeExpectedBottom = initialLocation[1] + view.height
         val listener = View.OnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
             val location = IntArray(2)
             v.getLocationOnScreen(location)
-            val actualRight = location[0] + v.width
-            val actualBottom = location[1] + v.height
-            val rightMoved = resizeGrip.affectsLeft && actualRight != resizeExpectedRight
-            val bottomMoved = resizeGrip.affectsTop && actualBottom != resizeExpectedBottom
-            if (rightMoved || bottomMoved) {
+            val actualLeft = location[0]
+            val actualTop = location[1]
+            val actualRight = actualLeft + v.width
+            val actualBottom = actualTop + v.height
+            val fixedEdgeMoved = when {
+                resizeGrip.affectsLeft -> actualRight != resizeExpectedRight
+                resizeGrip.affectsRight -> actualLeft != resizeExpectedLeft
+                else -> false
+            } || when {
+                resizeGrip.affectsTop -> actualBottom != resizeExpectedBottom
+                resizeGrip.affectsBottom -> actualTop != resizeExpectedTop
+                else -> false
+            }
+            if (fixedEdgeMoved) {
                 Log.w(
                     "FloatShowResize",
-                    "grip=$resizeGrip model=$panel actual=${location[0]},${location[1]},${v.width},${v.height} " +
-                        "fixedExpected=$resizeExpectedRight,$resizeExpectedBottom fixedActual=$actualRight,$actualBottom"
+                    "grip=$resizeGrip model=$panel actual=$actualLeft,$actualTop,${v.width},${v.height} " +
+                        "fixedExpected=$resizeExpectedLeft,$resizeExpectedTop,$resizeExpectedRight,$resizeExpectedBottom " +
+                        "fixedActual=$actualLeft,$actualTop,$actualRight,$actualBottom"
                 )
             }
         }
@@ -658,6 +679,21 @@ class PanelWindow(
         val listener = resizeLayoutListener ?: return
         panelView?.removeOnLayoutChangeListener(listener)
         resizeLayoutListener = null
+    }
+
+    /** 每个屏幕刷新帧最多更新一次悬浮窗, 保留该帧前最新的触摸几何. */
+    private fun scheduleResizeGeometryApply() {
+        if (resizeApplyPending) return
+        resizeApplyPending = true
+        Choreographer.getInstance().postFrameCallback(resizeFrameCallback)
+    }
+
+    /** 手指抬起前确保最后一次 MOVE 的几何已提交. */
+    private fun flushResizeGeometryApply() {
+        if (!resizeApplyPending) return
+        Choreographer.getInstance().removeFrameCallback(resizeFrameCallback)
+        resizeApplyPending = false
+        applyPanelGeometry()
     }
 
     // ── 收起 / 提交 ──────────────────────────────────────────
