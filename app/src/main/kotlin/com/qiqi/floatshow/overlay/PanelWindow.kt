@@ -69,12 +69,13 @@ class PanelWindow(
 
     private var panelParams: WindowManager.LayoutParams? = null
     private var panelView: FrameLayout? = null
-    private var bar: LinearLayout? = null
+    private var bar: FrameLayout? = null
     private var barParams: FrameLayout.LayoutParams? = null
     private var contentView: View? = null
     private var contentParams: FrameLayout.LayoutParams? = null
     private var titleView: TextView? = null
     private var minimizeView: ImageView? = null
+    private var closeView: ImageView? = null
 
     private val cornerGrips = mutableListOf<View>()
     private val edgeGrips = mutableListOf<View>()
@@ -170,7 +171,8 @@ class PanelWindow(
         bar = barView
         barParams = barLp
 
-        // 边缘手柄: 只用来整体移动, 不改变尺寸
+        // 边缘手柄: 只用来整体移动, 不改变尺寸.
+        // 厚度取控制按钮的 2/3, 太薄会因为取整与手指宽度而"点不到边".
         val edgeThickness = (controlSizePx * 2 / 3).coerceAtLeast(1)
         repeat(3) {
             val edge = View(service)
@@ -227,6 +229,7 @@ class PanelWindow(
         contentParams = null
         titleView = null
         minimizeView = null
+        closeView = null
     }
 
     fun remove() {
@@ -236,11 +239,12 @@ class PanelWindow(
 
     // ── 工具栏 ──────────────────────────────────────────────
 
-    private fun buildBar(): LinearLayout {
-        val barView = LinearLayout(service).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), 0, 0, 0)
+    /**
+     * 工具栏. 用重叠布局而不是横排: 宽度不够时按 z 序互相覆盖, 谁也不被移除.
+     * 叠放次序(从下往上): 标题 → 最小化 → 关闭. 关闭始终在最上层, 也始终在最右.
+     */
+    private fun buildBar(): FrameLayout {
+        val barView = FrameLayout(service).apply {
             setOnTouchListener(dragListener)
         }
 
@@ -250,20 +254,36 @@ class PanelWindow(
             ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
             setTextColor(inkColor())
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), 0, controlSizePx * 2, 0)
         }
         barView.addView(
             title,
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ).apply { gravity = Gravity.START }
         )
         titleView = title
 
         val minimize = barButton(R.drawable.ic_panel_minimize, inkColor()) { collapseToBall() }
-        barView.addView(minimize)
+        barView.addView(
+            minimize,
+            FrameLayout.LayoutParams(controlSizePx, controlSizePx).apply {
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                marginEnd = controlSizePx
+            }
+        )
         minimizeView = minimize
 
-        // 关闭按钮优先级最高: 宽度不够时它永远在
         val close = barButton(R.drawable.ic_panel_close, Color.argb(255, 220, 80, 80)) { onClose() }
-        barView.addView(close)
+        barView.addView(
+            close,
+            FrameLayout.LayoutParams(controlSizePx, controlSizePx).apply {
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            }
+        )
+        closeView = close
 
         return barView
     }
@@ -283,7 +303,6 @@ class PanelWindow(
             isClickable = true
             isFocusable = false
             setOnClickListener { onClick() }
-            layoutParams = LinearLayout.LayoutParams(size, ViewGroup.LayoutParams.MATCH_PARENT)
         }
     }
 
@@ -363,12 +382,40 @@ class PanelWindow(
         }
     }
 
-    /** 宽度不够时先收标题, 最小化与关闭永远保留 */
+    /**
+     * 宽度不够时靠重叠解决, 不移除任何部件:
+     * 关闭压最小化, 最小化压标题. 三者始终存在, 只是被上层的盖住一部分.
+     * 标题与两个按钮都在右端对齐, 所以窗口再窄关闭按钮也不会跑出屏幕.
+     */
     private fun updateBarOverflow(widthPx: Int) {
-        val unit = controlSizePx
         val title = titleView ?: return
-        val available = widthPx - dp(8)
-        title.visibility = if (available >= unit * 2 + unit) View.VISIBLE else View.GONE
+        val close = closeView ?: return
+        val minimize = minimizeView ?: return
+        val closeSize = controlSizePx
+        val minimizeSize = if (widthPx >= closeSize * 2) controlSizePx else widthPx - closeSize
+        val minimizeParams = minimize.layoutParams as? FrameLayout.LayoutParams
+        if (minimizeParams != null && minimizeParams.width != minimizeSize.coerceAtLeast(0)) {
+            minimizeParams.width = minimizeSize.coerceAtLeast(0)
+            minimize.requestLayout()
+        }
+        val minimizeParamsBar = minimize.layoutParams as? FrameLayout.LayoutParams
+        if (minimizeParamsBar != null) {
+            val margin = closeSize
+            if (minimizeParamsBar.marginEnd != margin) {
+                minimizeParamsBar.marginEnd = margin
+                minimize.requestLayout()
+            }
+        }
+        // 标题占满左侧, 右侧留给两个按钮, 不够就被盖住
+        val titleParams = title.layoutParams as? FrameLayout.LayoutParams
+        if (titleParams != null && titleParams.marginEnd != closeSize * 2) {
+            titleParams.marginEnd = closeSize * 2
+            title.requestLayout()
+        }
+        // 关闭按钮永远可见且完整
+        if (close.visibility != View.VISIBLE) close.visibility = View.VISIBLE
+        if (minimize.visibility != View.VISIBLE) minimize.visibility = View.VISIBLE
+        if (title.visibility != View.VISIBLE) title.visibility = View.VISIBLE
     }
 
     // ── 触摸: 球 ────────────────────────────────────────────
@@ -473,7 +520,11 @@ class PanelWindow(
     // ── 触摸: 面板拖动 / 缩放 ────────────────────────────────
 
     /** 工具栏与边缘共用: 只整体移动, 不改尺寸 */
-    private val dragListener = View.OnTouchListener { _, event ->
+    private val dragListener = View.OnTouchListener { view, event ->
+        // 手指按在工具按钮上时直接把事件交给按钮, 否则拖动监听会把点击吃掉
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && hitsBarButton(view, event)) {
+            return@OnTouchListener false
+        }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downRawX = event.rawX
@@ -503,6 +554,21 @@ class PanelWindow(
             }
         }
         true
+    }
+
+    /** DOWN 是否落在最小化/关闭按钮上: 用屏幕坐标比对, 不依赖布局层级 */
+    private fun hitsBarButton(view: View, event: MotionEvent): Boolean {
+        val targets = listOf(minimizeView, closeView)
+        val loc = IntArray(2)
+        for (target in targets) {
+            val t = target ?: continue
+            if (t.visibility != View.VISIBLE) continue
+            t.getLocationOnScreen(loc)
+            if (event.rawX >= loc[0] && event.rawX < loc[0] + t.width &&
+                event.rawY >= loc[1] && event.rawY < loc[1] + t.height
+            ) return true
+        }
+        return false
     }
 
     private fun handleDragMove(event: MotionEvent) {
