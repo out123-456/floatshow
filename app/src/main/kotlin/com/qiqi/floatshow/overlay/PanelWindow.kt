@@ -78,6 +78,9 @@ class PanelWindow(
 
     private val cornerGrips = mutableListOf<View>()
     private val edgeGrips = mutableListOf<View>()
+    /** 手柄的布局参数预分配并复用, 缩放时每帧重建会产生大量临时对象 */
+    private val edgeParams = mutableListOf<FrameLayout.LayoutParams>()
+    private val cornerParams = mutableListOf<FrameLayout.LayoutParams>()
 
     // 拖动 / 缩放共用
     private var downRawX = 0f
@@ -136,6 +139,8 @@ class PanelWindow(
         val (screenWidth, screenHeight) = screenSize()
         panel = PanelLayout.clamp(geometry, screenWidth, screenHeight)
 
+        maxSurfacePx = min(screenWidth, screenHeight)
+
         val root = FrameLayout(service)
         // 子 View(手柄)允许画到容器之外
         root.clipChildren = false
@@ -169,16 +174,20 @@ class PanelWindow(
         val edgeThickness = (controlSizePx * 2 / 3).coerceAtLeast(1)
         repeat(3) {
             val edge = View(service)
+            val lp = FrameLayout.LayoutParams(0, 0)
             edge.setOnTouchListener(dragListener)
-            root.addView(edge, FrameLayout.LayoutParams(0, 0))
+            root.addView(edge, lp)
             edgeGrips += edge
+            edgeParams += lp
         }
         // 角手柄: 缩放, 尺寸就是关闭按钮那一格, 压在边缘手柄之上
         repeat(3) {
             val corner = View(service)
+            val lp = FrameLayout.LayoutParams(controlSizePx, controlSizePx)
             corner.setOnTouchListener(resizeListener)
-            root.addView(corner, FrameLayout.LayoutParams(controlSizePx, controlSizePx))
+            root.addView(corner, lp)
             cornerGrips += corner
+            cornerParams += lp
         }
         edgeThicknessPx = edgeThickness
 
@@ -197,6 +206,9 @@ class PanelWindow(
 
     private var edgeThicknessPx = 1
 
+    /** 面板最大边长, 展示时算一次 */
+    private var maxSurfacePx = 1
+
     private fun removePanelWindow() {
         val v = panelView ?: return
         bar?.setOnTouchListener(null)
@@ -204,6 +216,8 @@ class PanelWindow(
         cornerGrips.forEach { it.setOnTouchListener(null) }
         cornerGrips.clear()
         edgeGrips.clear()
+        edgeParams.clear()
+        cornerParams.clear()
         runCatching { wm.removeView(v) }
         panelView = null
         panelParams = null
@@ -303,17 +317,27 @@ class PanelWindow(
         val edges = PanelLayout.edgeGrips(toolbarAtBottom)
         edgeGrips.forEachIndexed { index, view ->
             val grip = edges.getOrNull(index) ?: return@forEachIndexed
-            view.visibility = View.VISIBLE
-            val lp = when (grip) {
-                PanelGrip.LEFT_EDGE -> FrameLayout.LayoutParams(t, h)
-                    .apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL }
-                PanelGrip.RIGHT_EDGE -> FrameLayout.LayoutParams(t, h)
-                    .apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
-                PanelGrip.TOP_EDGE -> FrameLayout.LayoutParams(w, t)
-                    .apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL }
-                PanelGrip.BOTTOM_EDGE -> FrameLayout.LayoutParams(w, t)
-                    .apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL }
-                else -> FrameLayout.LayoutParams(0, 0)
+            val lp = edgeParams[index]
+            when (grip) {
+                PanelGrip.LEFT_EDGE -> {
+                    lp.width = t; lp.height = h
+                    lp.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                }
+                PanelGrip.RIGHT_EDGE -> {
+                    lp.width = t; lp.height = h
+                    lp.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                }
+                PanelGrip.TOP_EDGE -> {
+                    lp.width = w; lp.height = t
+                    lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                }
+                PanelGrip.BOTTOM_EDGE -> {
+                    lp.width = w; lp.height = t
+                    lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                }
+                else -> {
+                    lp.width = 0; lp.height = 0
+                }
             }
             root.updateViewLayout(view, lp)
         }
@@ -321,15 +345,19 @@ class PanelWindow(
         val corners = PanelLayout.cornerGrips(toolbarAtBottom)
         cornerGrips.forEachIndexed { index, view ->
             val grip = corners.getOrNull(index) ?: return@forEachIndexed
-            val lp = FrameLayout.LayoutParams(c, c).apply {
-                gravity = when (grip) {
-                    PanelGrip.LEFT_TOP -> Gravity.TOP or Gravity.START
-                    PanelGrip.RIGHT_TOP -> Gravity.TOP or Gravity.END
-                    PanelGrip.LEFT_BOTTOM -> Gravity.BOTTOM or Gravity.START
-                    PanelGrip.RIGHT_BOTTOM -> Gravity.BOTTOM or Gravity.END
-                    else -> Gravity.TOP or Gravity.START
-                }
+            val lp = cornerParams[index]
+            val gravity = when (grip) {
+                PanelGrip.LEFT_TOP -> Gravity.TOP or Gravity.START
+                PanelGrip.RIGHT_TOP -> Gravity.TOP or Gravity.END
+                PanelGrip.LEFT_BOTTOM -> Gravity.BOTTOM or Gravity.START
+                PanelGrip.RIGHT_BOTTOM -> Gravity.BOTTOM or Gravity.END
+                else -> Gravity.TOP or Gravity.START
             }
+            if (lp.width != c || lp.height != c) {
+                lp.width = c
+                lp.height = c
+            }
+            if (lp.gravity != gravity) lp.gravity = gravity
             root.updateViewLayout(view, lp)
             view.tag = grip
         }
@@ -565,26 +593,17 @@ class PanelWindow(
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - downRawX
                 val dy = event.rawY - downRawY
-                val (screenWidth, screenHeight) = screenSize()
-                val result = PanelLayout.resize(
+                // 缩放过程中不重新判断工具栏翻转, 也不重新做 5% 约束:
+                // 每帧翻转会让手柄布局整体重排, 这就是"按住靠近工具栏的角更卡"的来源
+                panel = PanelLayout.resize(
                     grip = resizeGrip,
                     start = startPanelGeometry,
                     dx = dx,
                     dy = dy,
                     minSize = minSizePx,
-                    maxSize = min(screenWidth, screenHeight)
+                    maxSize = maxSurfacePx
                 )
-                // 越界后手柄换到了对面: 记住它, 后续手势接着用新的那个
-                if (result.grip != resizeGrip) {
-                    resizeGrip = result.grip
-                }
-                panel = PanelLayout.clamp(result.geometry, screenWidth, screenHeight)
                 applyPanelGeometry()
-
-                // 纵向翻转时把工具栏换到另一边, 避免手柄压在关闭按钮上
-                setBarAtBottom(
-                    PanelLayout.nextToolbarAtBottom(toolbarAtBottom, panel, screenHeight)
-                )
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> commit()
         }

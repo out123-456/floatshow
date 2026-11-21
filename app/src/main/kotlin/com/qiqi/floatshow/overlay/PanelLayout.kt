@@ -1,8 +1,5 @@
 package com.qiqi.floatshow.overlay
 
-/** 一次缩放的结算结果: 新几何 + 生效中的手柄(可能因为越界被换到对面) */
-data class ResizeResult(val geometry: PanelGeometry, val grip: PanelGrip)
-
 /**
  * 面板几何的纯计算, 单位全部是像素.
  *
@@ -66,7 +63,7 @@ object PanelLayout {
 
     /**
      * 从某个角缩放. dx/dy 是本次手势相对起点的位移.
-     * 被拖的边越过最小尺寸时, 面板整体朝手指方向平移, 该方向的手柄交给对面.
+     * 被拖的边到最小/最大尺寸就停住, 面板位置不跟着手指挥动.
      */
     fun resize(
         grip: PanelGrip,
@@ -75,62 +72,31 @@ object PanelLayout {
         dy: Float,
         minSize: Int,
         maxSize: Int
-    ): ResizeResult {
+    ): PanelGeometry {
         var left = start.x.toFloat()
         var top = start.y.toFloat()
         var right = (start.x + start.width).toFloat()
         var bottom = (start.y + start.height).toFloat()
-        var g = grip
         val min = minSize.toFloat()
         val max = maxSize.toFloat()
 
         if (grip.affectsRight) {
-            val finger = right + dx
-            if (finger - left < min) {
-                left = finger
-                right = left + min
-                g = g.flipHorizontal()
-            } else {
-                right = finger
-                if (right - left > max) right = left + max
-            }
+            right = (right + dx).coerceIn(left + min, left + max)
         } else if (grip.affectsLeft) {
-            val finger = left + dx
-            if (right - finger < min) {
-                right = finger
-                left = right - min
-                g = g.flipHorizontal()
-            } else {
-                left = finger
-                if (right - left > max) left = right - max
-            }
+            left = (left + dx).coerceIn(right - max, right - min)
         }
 
         if (grip.affectsBottom) {
-            val finger = bottom + dy
-            if (finger - top < min) {
-                top = finger
-                bottom = top + min
-                g = g.flipVertical()
-            } else {
-                bottom = finger
-                if (bottom - top > max) bottom = top + max
-            }
+            bottom = (bottom + dy).coerceIn(top + min, top + max)
         } else if (grip.affectsTop) {
-            val finger = top + dy
-            if (bottom - finger < min) {
-                bottom = finger
-                top = bottom - min
-                g = g.flipVertical()
-            } else {
-                top = finger
-                if (bottom - top > max) top = bottom - max
-            }
+            top = (top + dy).coerceIn(bottom - max, bottom - min)
         }
 
-        return ResizeResult(
-            PanelGeometry(left.toInt(), top.toInt(), (right - left).toInt(), (bottom - top).toInt()),
-            g
+        return PanelGeometry(
+            left.toInt(),
+            top.toInt(),
+            (right - left).toInt(),
+            (bottom - top).toInt()
         )
     }
 }
