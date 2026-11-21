@@ -12,6 +12,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.util.Log
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
@@ -92,6 +93,9 @@ class PanelWindow(
     private var followingPointer = false
     private var resizeGrip = PanelGrip.RIGHT_BOTTOM
     private var downOnBar = false
+    private var resizeLayoutListener: View.OnLayoutChangeListener? = null
+    private var resizeExpectedRight = 0
+    private var resizeExpectedBottom = 0
 
     val isShowing: Boolean get() = ballView != null || panelView != null
 
@@ -599,6 +603,7 @@ class PanelWindow(
                 downRawY = event.rawY
                 startPanelGeometry = panel
                 resizeGrip = (view.tag as? PanelGrip) ?: PanelGrip.RIGHT_BOTTOM
+                beginResizeBoundaryTrace()
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - downRawX
@@ -615,9 +620,44 @@ class PanelWindow(
                 )
                 applyPanelGeometry()
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> commit()
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                endResizeBoundaryTrace()
+                commit()
+            }
         }
         true
+    }
+
+    /** 只记录实际窗口固定边发生偏移的帧, 用于区分几何计算与窗口布局问题. */
+    private fun beginResizeBoundaryTrace() {
+        val view = panelView ?: return
+        val initialLocation = IntArray(2)
+        view.getLocationOnScreen(initialLocation)
+        resizeExpectedRight = initialLocation[0] + view.width
+        resizeExpectedBottom = initialLocation[1] + view.height
+        val listener = View.OnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            val location = IntArray(2)
+            v.getLocationOnScreen(location)
+            val actualRight = location[0] + v.width
+            val actualBottom = location[1] + v.height
+            val rightMoved = resizeGrip.affectsLeft && actualRight != resizeExpectedRight
+            val bottomMoved = resizeGrip.affectsTop && actualBottom != resizeExpectedBottom
+            if (rightMoved || bottomMoved) {
+                Log.w(
+                    "FloatShowResize",
+                    "grip=$resizeGrip model=$panel actual=${location[0]},${location[1]},${v.width},${v.height} " +
+                        "fixedExpected=$resizeExpectedRight,$resizeExpectedBottom fixedActual=$actualRight,$actualBottom"
+                )
+            }
+        }
+        resizeLayoutListener = listener
+        view.addOnLayoutChangeListener(listener)
+    }
+
+    private fun endResizeBoundaryTrace() {
+        val listener = resizeLayoutListener ?: return
+        panelView?.removeOnLayoutChangeListener(listener)
+        resizeLayoutListener = null
     }
 
     // ── 收起 / 提交 ──────────────────────────────────────────
