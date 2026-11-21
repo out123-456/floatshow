@@ -119,7 +119,6 @@ class PanelWindow(
     private var startPanelY = 0
     private var startPanelGeometry = initialPanel
     private var dragging = false
-    private var followingPointer = false
     private var resizeGrip = PanelGrip.RIGHT_BOTTOM
     private var downOnBar = false
     private var resizeApplyPending = false
@@ -170,10 +169,12 @@ class PanelWindow(
             panel = geometry
             return
         }
-        panel = geometry
-        val (screenWidth, screenHeight) = screenSize()
+        // 位置由调用方(inflate 前后)已约束过; 这里再夹一次只为了兜住外部改动的尺寸
         panel = clampPanelGeometry(geometry)
+        // 约束可能挪了面板, 球跟着关闭角走, 保持"球=关闭按钮收起后的样子"
+        ball = closeCornerBall(panel)
 
+        val (screenWidth, screenHeight) = screenSize()
         maxSurfacePx = min(screenWidth, screenHeight)
 
         val root = FrameLayout(service)
@@ -460,27 +461,39 @@ class PanelWindow(
         true
     }
 
-    /** 以球心为锚点展开: 球在九宫格哪一格, 窗口就用同一格对应的角去对齐 */
     /**
-     * 展开. 面板用它自己保存的位置与尺寸, 不再跟着球的位置走:
-     * 球和面板各管各的位置, 展开只是把面板窗口开出来.
+     * 展开: 面板的关闭角就地长出来, 球不动.
+     * 球就是关闭按钮收起来的样子, 所以面板的关闭角与球完全对齐;
+     * 面板尺寸沿用上次的, 位置由球的当前位置反推, 与面板上次在哪无关.
      */
     private fun expandFromBall() {
-        val (screenWidth, screenHeight) = screenSize()
         val w = max(panel.width, minSizePx)
         val h = max(panel.height, minSizePx)
-        var geometry = clampPanelGeometry(PanelGeometry(panel.x, panel.y, w, h))
-        if (!barVisibleAt(geometry)) {
-            geometry = clampPanelGeometry(
-                PanelGeometry((screenWidth * 0.15f).toInt(), dp(8), w, h)
-            )
-            setBarAtBottom(false, force = true)
-        }
-
+        val geometry = clampPanelGeometry(panelAnchoredToBall(w, h))
+        // 约束可能把面板推离挖孔, 此时球跟着关闭角走, 保持两者重合
+        ball = closeCornerBall(geometry)
         removeBallWindow()
         expanded = true
         showPanelWindow(geometry)
         commit()
+    }
+
+    /** 按球的当前位置反推面板: 关闭角贴住球 */
+    private fun panelAnchoredToBall(w: Int, h: Int): PanelGeometry {
+        val right = ball.x + ballSizePx
+        val y = if (toolbarAtBottom) ball.y + ballSizePx - h else ball.y
+        return PanelGeometry(right - w, y, w, h)
+    }
+
+    /** 面板关闭角对应的球位置 */
+    private fun closeCornerBall(geometry: PanelGeometry): PanelGeometry {
+        val x = geometry.x + geometry.width - ballSizePx
+        val y = if (toolbarAtBottom) {
+            geometry.y + geometry.height - ballSizePx
+        } else {
+            geometry.y
+        }
+        return PanelGeometry(x, y, ballSizePx, ballSizePx)
     }
 
     // ── 触摸: 面板拖动 / 缩放 ────────────────────────────────
@@ -503,20 +516,12 @@ class PanelWindow(
             }
             MotionEvent.ACTION_MOVE -> handleDragMove(event)
             MotionEvent.ACTION_UP -> {
-                if (!dragging && !followingPointer) {
-                    // 没拖动就是点了工具栏空白处, 不做任何事; 按钮有自己的点击处理
-                } else if (followingPointer) {
-                    removePanelWindow()
-                    commit()
-                } else {
-                    commit()
-                }
+                // 没拖动就是点了工具栏空白处, 不做任何事; 按钮有自己的点击处理
+                if (dragging) commit()
                 dragging = false
-                followingPointer = false
             }
             MotionEvent.ACTION_CANCEL -> {
                 dragging = false
-                followingPointer = false
             }
         }
         true
@@ -540,73 +545,21 @@ class PanelWindow(
     private fun handleDragMove(event: MotionEvent) {
         val dx = (event.rawX - downRawX).toInt()
         val dy = (event.rawY - downRawY).toInt()
-        if (!dragging && !followingPointer && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+        if (!dragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
             dragging = true
         }
-        if (!dragging && !followingPointer) return
+        if (!dragging) return
 
-        if (followingPointer) {
-            followBall(event.rawX, event.rawY)
-            return
-        }
-
-        val (screenWidth, screenHeight) = screenSize()
+        val (_, screenHeight) = screenSize()
         val moved = panel.copy(x = startPanelX + dx, y = startPanelY + dy)
         val clamped = clampPanelGeometry(moved)
 
         // 翻转判断只在这个方向上有意义: 顶边进顶区翻到底部, 底边进底区翻回顶部
-        val wantBottom = PanelLayout.nextToolbarAtBottom(toolbarAtBottom, clamped, screenHeight)
+        val wantBottom = PanelLayout.nextToolbarAtBottom(toolbarAtBottom, clamped, screenHeight, controlSizePx)
         if (wantBottom != toolbarAtBottom) setBarAtBottom(wantBottom)
-
-        if (!barVisibleAt(clamped)) {
-            // 工具栏完全看不见了: 收成球, 球跟着手指走
-            followPointerAsBall(event.rawX, event.rawY)
-            return
-        }
 
         panel = clamped
         applyPanelGeometry()
-    }
-
-    /** 面板拖到工具栏不可见时, 先把自己藏起来(不移除), 再用球窗口跟手 */
-    private fun followPointerAsBall(rawX: Float, rawY: Float) {
-        panelView?.visibility = View.INVISIBLE
-        showBallWindow(
-            PanelGeometry(
-                (rawX - ballSizePx / 2).toInt(),
-                (rawY - ballSizePx / 2).toInt(),
-                ballSizePx, ballSizePx
-            )
-        )
-        followingPointer = true
-    }
-
-    /** 球跟手, 回到能放下的位置就自己展开 */
-    private fun followBall(rawX: Float, rawY: Float) {
-        val params = ballParams ?: return
-        val view = ballView ?: return
-        val (screenWidth, screenHeight) = screenSize()
-        ball = clampBall(
-            PanelGeometry(
-                (rawX - ballSizePx / 2).toInt(),
-                (rawY - ballSizePx / 2).toInt(),
-                ballSizePx, ballSizePx
-            ), screenWidth, screenHeight
-        )
-        params.x = ball.x
-        params.y = ball.y
-        runCatching { wm.updateViewLayout(view, params) }
-
-        // 手指回到能让窗口放下来的位置, 面板回到它自己的位置(不跟球走)
-        val target = clampPanelGeometry(panel)
-        if (!barVisibleAt(target)) return
-
-        removeBallWindow()
-        followingPointer = false
-        panelView?.visibility = View.VISIBLE
-        panel = target
-        applyPanelGeometry()
-        setBarAtBottom(PanelLayout.nextToolbarAtBottom(toolbarAtBottom, target, screenHeight))
     }
 
     /**
@@ -675,30 +628,16 @@ class PanelWindow(
     // ── 收起 / 提交 ──────────────────────────────────────────
 
     /** 最小化: 球落在最小化按钮原来的屏幕位置 */
+    /**
+     * 收起: 球落在关闭按钮的位置, 也就是球长大成面板的那个角.
+     * 直接删掉面板窗口并新增球窗口, 不采用"隐藏面板留下不阻挡触摸的空壳".
+     */
     private fun collapseToBall() {
         if (!expanded) return
-        val minimize = minimizeView
-        val loc = IntArray(2)
-        val minimizeX: Int
-        val minimizeY: Int
-        if (minimize != null) {
-            minimize.getLocationOnScreen(loc)
-            minimizeX = loc[0]
-            minimizeY = loc[1]
-        } else {
-            minimizeX = panel.x + panel.width - controlSizePx * 2
-            minimizeY = if (toolbarAtBottom) panel.y + panel.height - controlSizePx else panel.y
-        }
-
+        val target = closeCornerBall(panel)
         removePanelWindow()
         expanded = false
-        showBallWindow(
-            PanelGeometry(
-                minimizeX + (controlSizePx - ballSizePx) / 2,
-                minimizeY + (controlSizePx - ballSizePx) / 2,
-                ballSizePx, ballSizePx
-            )
-        )
+        showBallWindow(target)
         commit()
     }
 
@@ -720,10 +659,11 @@ class PanelWindow(
     private fun commit() {
         val (screenWidth, screenHeight) = screenSize()
         val clampedPanel = clampPanelGeometry(panel)
-        val clampedBall = clampBall(ball, screenWidth, screenHeight)
         panel = clampedPanel
-        ball = clampedBall
-        onState(PanelState(clampedPanel, clampedBall, expanded, toolbarAtBottom))
+        // 展开时球只是关闭角的一个影子, 位置由面板反推; 收起时球是用户放下的那一点
+        ball = if (expanded) closeCornerBall(clampedPanel)
+        else clampBall(ball, screenWidth, screenHeight)
+        onState(PanelState(clampedPanel, ball, expanded, toolbarAtBottom))
     }
 
     // ── 小工具 ──────────────────────────────────────────────
@@ -799,15 +739,6 @@ class PanelWindow(
     }
 
     /** 以球心为锚点算面板位置: 球在哪一格, 面板就用那一格对应的角去对齐 */
-    /** 工具栏(在顶部或底部)是否还能看见一点 */
-    private fun barVisibleAt(geometry: PanelGeometry): Boolean {
-        val barTop = if (toolbarAtBottom) geometry.y + geometry.height - controlSizePx else geometry.y
-        val barBottom = barTop + controlSizePx
-        // 用整屏高度判断, 不用 displayMetrics.heightPixels: 后者会随状态栏显隐变化
-        val screenHeight = screenSize().second
-        return barBottom > 0 && barTop < screenHeight
-    }
-
     private fun panelColor(): Int {
         val night = (service.resources.configuration.uiMode and
             Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
