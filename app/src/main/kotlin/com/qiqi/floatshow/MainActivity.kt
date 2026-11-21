@@ -27,10 +27,8 @@ class MainActivity : ComponentActivity() {
         // 主界面全屏: 隐藏状态栏, 并允许内容画进挖孔区.
         // 下滑可临时唤出状态栏, 它是系统提供的行为, 不是本应用自绘.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            WindowCompat.getAttributes(window).apply {
-                layoutInDisplayCutoutMode =
-                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            }
+            window.attributes.layoutInDisplayCutoutMode =
+                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         }
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.statusBars())
