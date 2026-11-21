@@ -137,7 +137,9 @@ class PanelWindow(
         panel = PanelLayout.clamp(geometry, screenWidth, screenHeight)
 
         val root = FrameLayout(service)
-        root.clipsToBounds = false
+        // 子 View(手柄)允许画到容器之外
+        root.clipChildren = false
+        root.clipToPadding = false
         root.background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = 0f
