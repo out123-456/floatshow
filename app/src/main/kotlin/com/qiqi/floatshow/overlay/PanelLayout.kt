@@ -1,5 +1,7 @@
 package com.qiqi.floatshow.overlay
 
+import kotlin.math.roundToInt
+
 /**
  * 面板几何的纯计算, 单位全部是像素.
  *
@@ -66,7 +68,8 @@ object PanelLayout {
 
     /**
      * 从某个角缩放. dx/dy 是本次手势相对起点的位移.
-     * 被拖的边到最小/最大尺寸就停住, 面板位置不跟着手指挥动.
+     * 全程用整数边: 只有被拖的那条边按手指四舍五入, 不动的边保持原值.
+     * 上一版用浮点边再各自 toInt() 截断, 宽高与位置的取整方向不一致, 不动的边会在 R 和 R-1 之间跳.
      */
     fun resize(
         grip: PanelGrip,
@@ -76,30 +79,23 @@ object PanelLayout {
         minSize: Int,
         maxSize: Int
     ): PanelGeometry {
-        var left = start.x.toFloat()
-        var top = start.y.toFloat()
-        var right = (start.x + start.width).toFloat()
-        var bottom = (start.y + start.height).toFloat()
-        val min = minSize.toFloat()
-        val max = maxSize.toFloat()
+        var left = start.x
+        var top = start.y
+        var right = start.x + start.width
+        var bottom = start.y + start.height
 
         if (grip.affectsRight) {
-            right = (right + dx).coerceIn(left + min, left + max)
+            right = (right + dx).roundToInt().coerceIn(left + minSize, left + maxSize)
         } else if (grip.affectsLeft) {
-            left = (left + dx).coerceIn(right - max, right - min)
+            left = (left + dx).roundToInt().coerceIn(right - maxSize, right - minSize)
         }
 
         if (grip.affectsBottom) {
-            bottom = (bottom + dy).coerceIn(top + min, top + max)
+            bottom = (bottom + dy).roundToInt().coerceIn(top + minSize, top + maxSize)
         } else if (grip.affectsTop) {
-            top = (top + dy).coerceIn(bottom - max, bottom - min)
+            top = (top + dy).roundToInt().coerceIn(bottom - maxSize, bottom - minSize)
         }
 
-        return PanelGeometry(
-            left.toInt(),
-            top.toInt(),
-            (right - left).toInt(),
-            (bottom - top).toInt()
-        )
+        return PanelGeometry(left, top, right - left, bottom - top)
     }
 }
