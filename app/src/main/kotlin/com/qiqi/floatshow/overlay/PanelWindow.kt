@@ -474,8 +474,11 @@ class PanelWindow(
      * 面板尺寸沿用上次的, 位置由球的当前位置反推, 与面板上次在哪无关.
      */
     private fun expandFromBall() {
-        val w = max(panel.width, minSizePx)
-        val h = max(panel.height, minSizePx)
+        // 太窄/太扁的面板展开后几乎抓不到内容, 顺手把它撑到关闭按钮的 1.5 倍.
+        // 只在展开这一刻做, 之后用户仍可自由缩到最小尺寸.
+        val minComfort = (controlSizePx * 3) / 2
+        val w = max(panel.width, minComfort)
+        val h = max(panel.height, minComfort)
         val geometry = clampPanelGeometry(panelAnchoredToBall(w, h))
         // 约束可能把面板推离挖孔, 此时球跟着关闭角走, 保持两者重合
         ball = closeCornerBall(geometry)

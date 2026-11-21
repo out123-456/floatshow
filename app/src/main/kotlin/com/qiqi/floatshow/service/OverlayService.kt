@@ -28,6 +28,8 @@ import com.qiqi.floatshow.R
 import com.qiqi.floatshow.data.SettingsRepository
 import com.qiqi.floatshow.overlay.CrosshairView
 import com.qiqi.floatshow.overlay.PanelGeometry
+import com.qiqi.floatshow.overlay.PanelLayout
+import kotlin.math.min
 import com.qiqi.floatshow.overlay.PanelWindow
 
 /**
@@ -45,6 +47,10 @@ class OverlayService : Service() {
     private var panel: PanelWindow? = null
     /** 面板当前用的字体 uri, 用来判断换字体后要不要重建窗口 */
     private var lastFontUri: String? = null
+    /** 上一轮同步时面板是否开着, 用来识别"关→开"这个沿 */
+    private var lastPanelEnabled = false
+    /** 本次新建窗口是不是开关从关变开触发的; 只有这种才算全新打开 */
+    private var freshOpen = false
 
     private val handler = Handler(Looper.getMainLooper())
     private var pendingSync = false
@@ -124,6 +130,14 @@ class OverlayService : Service() {
     }
 
     private fun sync() {
+        // 面板开关从"关"变"开"算一次全新打开: 从球开始, 并让球离屏幕边至少 5%
+        val enabled = settings.panelEnabled && Settings.canDrawOverlays(this)
+        if (enabled && !lastPanelEnabled) {
+            settings.panelExpanded = false
+            freshOpen = true
+        }
+        lastPanelEnabled = enabled
+
         // 字体在 PanelWindow 构造时读到字段里, 换字体必须重建悬浮窗才会生效
         if (panel != null && lastFontUri != settings.panelFontUri) {
             panel?.remove()
@@ -226,7 +240,9 @@ class OverlayService : Service() {
             ?.coerceAtLeast(minPx)
             ?: dpToPx(SettingsRepository.DEFAULT_PANEL_HEIGHT_DP, density)
 
-        val expanded = settings.panelExpanded
+        // 全新打开一律从球开始; 服务重建(如被系统回收)则恢复上次的展开状态
+        val expanded = settings.panelExpanded && !freshOpen
+        freshOpen = false
         // 两种几何分开存: 收成球不会覆盖面板自己的位置与尺寸
         val panelGeometry = PanelGeometry(
             x = settings.panelX.takeUnless { it == SettingsRepository.UNSET_POSITION }
@@ -236,6 +252,7 @@ class OverlayService : Service() {
             width = restoreWidth,
             height = restoreHeight
         )
+        val marginPx = (min(screenWidth, screenHeight) * EDGE_MARGIN_RATIO).toInt()
         val ballGeometry = PanelGeometry(
             x = settings.panelBallX.takeUnless { it == SettingsRepository.UNSET_POSITION }
                 ?: (screenWidth - ballPx - dpToPx(24, density)),
@@ -243,7 +260,10 @@ class OverlayService : Service() {
                 ?: dpToPx(24, density),
             width = ballPx,
             height = ballPx
-        )
+        ).let { geometry ->
+            // 贴边就推离: 贴得太近时球可能被屏幕圆角/手势区吃掉, 点不到就只剩开关能救
+            PanelLayout.pushAwayFromEdges(geometry, screenWidth, screenHeight, marginPx)
+        }
 
         panel = PanelWindow(
             service = this,
@@ -405,6 +425,9 @@ class OverlayService : Service() {
 
         /** 合并设置变化的间隔(约一帧) */
         private const val SYNC_INTERVAL_MS = 16L
+
+        /** 球离屏幕边的最小距离, 相对屏幕短边的比例 */
+        private const val EDGE_MARGIN_RATIO = 0.05f
 
         fun start(context: Context) {
             val intent = Intent(context, OverlayService::class.java).setAction(ACTION_START)

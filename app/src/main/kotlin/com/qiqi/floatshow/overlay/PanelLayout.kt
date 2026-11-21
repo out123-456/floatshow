@@ -85,6 +85,29 @@ object PanelLayout {
         return if (x == geometry.x && y == geometry.y) geometry else geometry.copy(x = x, y = y)
     }
 
+    /**
+     * 把离屏幕边不足 [margin] 的球推到刚好 [margin] 处.
+     * 只处理贴得太近的一侧, 其余不动; 屏幕太小导致放不下时退化为居中.
+     */
+    fun pushAwayFromEdges(
+        geometry: PanelGeometry,
+        screenWidth: Int,
+        screenHeight: Int,
+        margin: Int
+    ): PanelGeometry {
+        val maxX = screenWidth - geometry.width - margin
+        val maxY = screenHeight - geometry.height - margin
+        val x = if (maxX < margin) (screenWidth - geometry.width) / 2
+        else if (geometry.x < margin) margin
+        else if (geometry.x > maxX) maxX
+        else geometry.x
+        val y = if (maxY < margin) (screenHeight - geometry.height) / 2
+        else if (geometry.y < margin) margin
+        else if (geometry.y > maxY) maxY
+        else geometry.y
+        return if (x == geometry.x && y == geometry.y) geometry else geometry.copy(x = x, y = y)
+    }
+
     /** 区间可能因面板比可用区还大而颠倒, 这时取靠前的那一端, 保证方向一致 */
     private fun axis(value: Int, lo: Int, hi: Int): Int =
         if (lo <= hi) value.coerceIn(lo, hi) else hi
