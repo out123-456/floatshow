@@ -54,7 +54,10 @@ class BitmapZoomView(context: Context) : View(context) {
     private var windowY = 0
     private var windowW = 0
     private var windowH = 0
-    private var fillPending = false
+    private var wantFill: IntArray? = null
+    private var fillRunning = false
+    /** 窗口里的像素是否与当前 windowX/windowY 对应; 重填期间为 false */
+    private var windowReady = false
 
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val dst = RectF()
@@ -139,23 +142,25 @@ class BitmapZoomView(context: Context) : View(context) {
 
             // 2. 有 raw 就直接用 raw, 完全不碰原图的压缩流
             val rawFile = RawImage.fileFor(context, uri)
-            if (rawFile.isFile && rawFile.length() > RawImage.HEADER) {
-                val opened = runCatching { RawReader(rawFile) }.getOrNull()
-                if (opened != null) {
-                    post {
-                        if (current != token) {
-                            opened.close()
-                            return@post
-                        }
-                        reader = opened
-                        usingRaw = true
-                        invalidate()
+            val opened = if (rawFile.isFile && rawFile.length() > RawImage.HEADER) {
+                runCatching { RawReader(rawFile) }.getOrNull()
+            } else {
+                null
+            }
+            if (opened != null) {
+                post {
+                    if (current != token) {
+                        opened.close()
+                        return@post
                     }
-                    return@execute
+                    reader = opened
+                    usingRaw = true
+                    invalidate()
                 }
             }
 
-            // 3. 先降采样出整图轮廓, 让用户秒见全图
+            // 3. 降采样整图. 这一步任何来源都要做: 缩到全图时只画它.
+            //    (raw 也一样 —— raw 只有按视口读小块的能力, 没有整图缩略)
             val small = decodeSampled(uri, w, h, targetW, targetH)
             post {
                 if (current != token) {
@@ -166,8 +171,8 @@ class BitmapZoomView(context: Context) : View(context) {
                 invalidate()
             }
 
-            // 4. 小图才补原始像素; 大图没有 raw 就停在降采样图, 不冒险整图进内存
-            if (w * h <= FULL_PIXEL_LIMIT) {
+            // 4. 只有小图且没有 raw 时才整图进内存; 大图没转 raw 就停在降采样图, 不冒险
+            if (opened == null && w.toLong() * h <= FULL_PIXEL_LIMIT) {
                 val big = decodeFull(uri, w, h)
                 post {
                     if (current != token) {
@@ -285,8 +290,17 @@ class BitmapZoomView(context: Context) : View(context) {
      * 窗口比视口大一圈, 所以拖动时多数帧都不需要重填; 只有视口移出窗口才读一次磁盘.
      */
     private fun drawFromRaw(canvas: Canvas, viewX: Float, viewY: Float, viewW: Float, viewH: Float) {
-        val coverW = min(imageWidth, max(1, ceil(viewW * WINDOW_GROW).toInt()))
-        val coverH = min(imageHeight, max(1, ceil(viewH * WINDOW_GROW).toInt()))
+        // 窗口 = 视口 + 每边 PAD. 用固定余量而不是倍数: 1:1 时视口就有整个屏幕那么大,
+        // 再按倍数放大窗口等于每次重填多读一倍多的数据, 拖动会明显拖沓.
+        val needW = min(imageWidth, ceil(viewW).toInt() + PAD * 2)
+        val needH = min(imageHeight, ceil(viewH).toInt() + PAD * 2)
+        if (needW > MAX_WINDOW || needH > MAX_WINDOW) {
+            // 极端的细长图: 一次搬不下, 先用降采样整图顶着
+            drawWhole(canvas, overview ?: full)
+            return
+        }
+        val coverW = needW
+        val coverH = needH
 
         val covered = window != null && !window!!.isRecycled &&
             viewX >= windowX && viewY >= windowY &&
@@ -300,16 +314,18 @@ class BitmapZoomView(context: Context) : View(context) {
                 windowW = coverW
                 windowH = coverH
             }
-            // 窗口居中在视口上, 再夹进图内
-            windowX = (viewX - (coverW - viewW) / 2f).toInt()
-                .coerceIn(0, max(0, imageWidth - coverW))
-            windowY = (viewY - (coverH - viewH) / 2f).toInt()
-                .coerceIn(0, max(0, imageHeight - coverH))
+            windowX = (viewX - PAD).toInt().coerceIn(0, max(0, imageWidth - coverW))
+            windowY = (viewY - PAD).toInt().coerceIn(0, max(0, imageHeight - coverH))
+            windowReady = false
             requestFill(windowX, windowY, coverW, coverH)
         }
 
-        val bmp = window ?: return
-        if (bmp.isRecycled) return
+        val bmp = window
+        if (bmp == null || bmp.isRecycled || !windowReady) {
+            // 窗口还没解码出来时先用降采样整图顶着, 免得白屏
+            drawWhole(canvas, overview ?: full)
+            return
+        }
         dst.set(
             offsetX + windowX * scale,
             offsetY + windowY * scale,
@@ -319,27 +335,50 @@ class BitmapZoomView(context: Context) : View(context) {
         canvas.drawBitmap(bmp, null, dst, paint)
     }
 
+    /**
+     * 请求填充窗口. 只保留最新一次请求: 拖动时视口连续变化, 排队等旧请求会让画面停在错位的内容上.
+     */
     private fun requestFill(x: Int, y: Int, w: Int, h: Int) {
-        if (fillPending) return
-        val source = reader ?: return
-        fillPending = true
+        wantFill = intArrayOf(x, y, w, h)
+        if (fillRunning) return
+        fillRunning = true
+        pumpFill()
+    }
+
+    private fun pumpFill() {
+        val want = wantFill
+        if (want == null) {
+            fillRunning = false
+            return
+        }
+        wantFill = null
+        val source = reader
+        if (source == null) {
+            fillRunning = false
+            return
+        }
         val current = token
+        val (fx, fy, fw, fh) = want
         executor.execute {
             val pixels = runCatching {
-                val buffer = IntArray(w * h)
-                source.readRows(y, h, buffer)
-                buffer
+                IntArray(fw * fh).also { source.readRows(fy, fh, it) }
             }.getOrNull()
             post {
-                fillPending = false
-                if (current != token) return@post
+                if (current != token) {
+                    fillRunning = false
+                    return@post
+                }
                 val target = window
+                // 只有窗口还是同一块(尺寸与起点都没变)才写回去, 否则这批像素已经过期
                 if (pixels != null && target != null && !target.isRecycled &&
-                    target.width == w && target.height == h
+                    target.width == fw && target.height == fh &&
+                    windowX == fx && windowY == fy
                 ) {
-                    target.setPixels(pixels, 0, w, 0, 0, w, h)
+                    target.setPixels(pixels, 0, fw, 0, 0, fw, fh)
+                    windowReady = true
                     invalidate()
                 }
+                pumpFill()
             }
         }
     }
@@ -355,6 +394,8 @@ class BitmapZoomView(context: Context) : View(context) {
         window = null
         windowW = 0
         windowH = 0
+        wantFill = null
+        windowReady = false
         usingRaw = false
     }
 
@@ -369,9 +410,12 @@ class BitmapZoomView(context: Context) : View(context) {
         private const val FULL_PIXEL_LIMIT = 4096 * 4096
 
         /** 视口覆盖超过这么多像素时改用降采样整图 */
-        private const val WINDOW_PIXEL_LIMIT = 4096L * 4096L
+        private const val WINDOW_PIXEL_LIMIT = 2048L * 2048L
 
-        /** 窗口比视口大多少, 越大重填越少, 内存也越大 */
-        private const val WINDOW_GROW = 1.5f
+        /** 窗口比视口每边多出的像素, 拖动在这个范围内不重填 */
+        private const val PAD = 128
+
+        /** 窗口单个边长上限, 超过就退回降采样整图 */
+        private const val MAX_WINDOW = 4096
     }
 }

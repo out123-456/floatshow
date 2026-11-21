@@ -186,9 +186,8 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         pendingRawUri = uri
     }
 
-    /** 当场转换并显示线性进度; 转完把该 uri 记为可用 */
+    /** 当场转换; 成功后对话框自己收起, 因此 pendingRawUri 在结束时由这里清掉 */
     fun convertRaw(uri: Uri) {
-        pendingRawUri = null
         rawProgress = 0
         scope.launch {
             val ok = withContext(Dispatchers.IO) {
@@ -198,9 +197,9 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 }
             }
             rawProgress = null
+            pendingRawUri = null
             if (ok) {
                 rawReady = rawReady + uri.toString()
-                toastText = R.string.panel_raw_done
             } else {
                 toastText = R.string.panel_raw_failed
             }
@@ -589,60 +588,63 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 )
             }
 
-            // 大图导入后询问是否转 Raw
+            // 转 Raw: 同一个对话框从"询问"走到"进度", 不再弹第二个
             val askUri = pendingRawUri
             if (askUri != null) {
                 val size = remember(askUri) { PanelContentPicker.imageSize(context, askUri) }
+                val progress = rawProgress
                 AlertDialog(
-                    onDismissRequest = { pendingRawUri = null },
-                    title = { Text(stringResource(R.string.panel_raw_ask_title)) },
+                    // 转换进行中不许关: 半途中断会留下半个文件
+                    onDismissRequest = { if (progress == null) pendingRawUri = null },
+                    title = {
+                        Text(
+                            stringResource(
+                                if (progress == null) R.string.panel_raw_ask_title
+                                else R.string.panel_raw_converting
+                            )
+                        )
+                    },
                     // 磁盘占用按 ARGB_8888 估: 每像素 4 字节
                     text = {
-                        if (size != null) {
-                            Text(
-                                stringResource(
-                                    R.string.panel_raw_ask_message,
-                                    size.first,
-                                    size.second,
-                                    ((size.first.toLong() * size.second * 4) / (1024 * 1024)).toInt()
+                        if (progress == null) {
+                            if (size != null) {
+                                Text(
+                                    stringResource(
+                                        R.string.panel_raw_ask_message,
+                                        size.first,
+                                        size.second,
+                                        ((size.first.toLong() * size.second * 4) / (1024 * 1024)).toInt()
+                                    )
                                 )
-                            )
+                            }
+                        } else {
+                            Column {
+                                LinearProgressIndicator(
+                                    progress = { progress / 100f },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Text(
+                                    text = "$progress%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 8.dp)
+                                )
+                            }
                         }
                     },
                     confirmButton = {
-                        TextButton(onClick = { convertRaw(askUri) }) {
-                            Text(stringResource(R.string.action_convert))
+                        if (progress == null) {
+                            TextButton(onClick = { convertRaw(askUri) }) {
+                                Text(stringResource(R.string.action_convert))
+                            }
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = { pendingRawUri = null }) {
-                            Text(stringResource(R.string.action_cancel))
+                        if (progress == null) {
+                            TextButton(onClick = { pendingRawUri = null }) {
+                                Text(stringResource(R.string.action_cancel))
+                            }
                         }
                     }
-                )
-            }
-
-            // 转 Raw 的线性进度
-            val progress = rawProgress
-            if (progress != null) {
-                AlertDialog(
-                    // 转换期间不允许取消: 半途中断会留下半个文件
-                    onDismissRequest = { },
-                    title = { Text(stringResource(R.string.panel_raw_converting)) },
-                    text = {
-                        Column {
-                            LinearProgressIndicator(
-                                progress = { progress / 100f },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Text(
-                                text = "$progress%",
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                        }
-                    },
-                    confirmButton = { }
                 )
             }
 
