@@ -64,7 +64,7 @@ data class PanelLayer(
                         val item = array.optJSONObject(i) ?: continue
                         val layer = fromJson(item)
                         if (layer.id.isEmpty()) continue
-                        add(if (layer.name.isBlank()) layer.copy(name = fallbackName(layer)) else layer)
+                        add(if (layer.name.isBlank()) layer.copy(name = PanelLayers.fallbackName(layer)) else layer)
                     }
                 }
             }.getOrDefault(emptyList())
