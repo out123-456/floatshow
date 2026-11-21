@@ -30,7 +30,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.qiqi.floatshow.R
 
 /**
- * 全屏查看器. 位图走 [BitmapZoomView](整图解压一次, 之后单张绘制, 支持 1:1 到 16x),
+ * 全屏查看器. 位图走 [BitmapZoomView](整图解压一次, 之后单张绘制, 支持 1:1 到 8x),
  * SVG 走 [SvgView](矢量放大), 两者都由触摸完成缩放与拖动; SVG 额外提供倍数按钮.
  */
 private const val MATCH = android.view.ViewGroup.LayoutParams.MATCH_PARENT

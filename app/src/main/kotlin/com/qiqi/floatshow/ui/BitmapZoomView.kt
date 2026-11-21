@@ -31,7 +31,7 @@ class BitmapZoomView(context: Context) : View(context) {
         private set
     var minScale = 0.05f
         private set
-    var maxScale = 16f
+    var maxScale = 8f
         private set
 
     private var imageWidth = 0
