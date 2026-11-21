@@ -32,13 +32,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +62,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.qiqi.floatshow.R
+import com.qiqi.floatshow.data.PanelContentPicker
+import com.qiqi.floatshow.data.PanelLayer
+import com.qiqi.floatshow.data.PanelLayerKind
+import com.qiqi.floatshow.data.PanelLayers
 import com.qiqi.floatshow.data.SettingsRepository
 import com.qiqi.floatshow.service.OverlayService
 import kotlinx.coroutines.delay
@@ -76,6 +84,14 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
     var hasImage by remember { mutableStateOf(settings.crosshairImageUri != null) }
     var notificationsAllowed by remember { mutableStateOf(notificationsEnabled(context)) }
     var serviceRunning by remember { mutableStateOf(settings.serviceRunning) }
+    var layers by remember { mutableStateOf(settings.panelLayers) }
+    var fontName by remember { mutableStateOf(settings.panelFontName) }
+    var showImportKind by remember { mutableStateOf(false) }
+    var pendingRenameId by remember { mutableStateOf<String?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var renameError by remember { mutableStateOf(false) }
+    var toastText by remember { mutableStateOf<Int?>(null) }
+    var pendingImportKind by remember { mutableStateOf(PanelLayerKind.IMAGE) }
 
     // 服务会写 serviceRunning, 面板也会自己写 panelEnabled(在面板上关掉时),
     // 这里跟着刷新, 否则主界面开关会一直停在旧状态
@@ -86,6 +102,12 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
             }
             if (key == SettingsRepository.KEY_PANEL_ENABLED) {
                 panelEnabled = settings.panelEnabled
+            }
+            if (key == SettingsRepository.KEY_PANEL_LAYERS) {
+                layers = settings.panelLayers
+            }
+            if (key == SettingsRepository.KEY_PANEL_FONT_URI) {
+                fontName = settings.panelFontName
             }
         }
         settings.prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -121,6 +143,80 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // 层列表每次改动都整体写回, 只触发一次监听
+    fun updateLayers(block: (List<PanelLayer>) -> List<PanelLayer>) {
+        val next = block(layers)
+        if (next == layers) return
+        layers = next
+        settings.panelLayers = next
+    }
+
+    fun importLayer(uri: Uri, kind: PanelLayerKind) {
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        when (kind) {
+            PanelLayerKind.IMAGE -> {
+                if (!PanelContentPicker.canReadImage(context, uri)) {
+                    toastText = R.string.panel_image_bad
+                    return
+                }
+                val layer = PanelLayer(
+                    id = java.util.UUID.randomUUID().toString(),
+                    name = PanelContentPicker.textFileName(context, uri) ?: "",
+                    kind = PanelLayerKind.IMAGE,
+                    content = uri.toString()
+                )
+                updateLayers { PanelLayers.add(it, layer) }
+            }
+            PanelLayerKind.TEXT -> {
+                if (!PanelContentPicker.isTextFile(context, uri)) {
+                    toastText = R.string.panel_text_bad_type
+                    return
+                }
+                val text = PanelContentPicker.readText(context, uri)
+                if (text.isNullOrBlank()) {
+                    toastText = R.string.panel_text_empty
+                    return
+                }
+                val layer = PanelLayer(
+                    id = java.util.UUID.randomUUID().toString(),
+                    name = PanelContentPicker.textFileName(context, uri) ?: "",
+                    kind = PanelLayerKind.TEXT,
+                    content = text
+                )
+                updateLayers { PanelLayers.add(it, layer) }
+            }
+        }
+    }
+
+    val layerPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) importLayer(uri, pendingImportKind)
+    }
+
+    val fontPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        if (!PanelContentPicker.isFontFile(context, uri)) {
+            toastText = R.string.panel_font_bad_type
+            return@rememberLauncherForActivityResult
+        }
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        val name = PanelContentPicker.textFileName(context, uri) ?: "字体"
+        settings.panelFontUri = uri.toString()
+        settings.panelFontName = name
+        fontName = name
     }
 
     val imagePicker = rememberLauncherForActivityResult(
@@ -257,6 +353,33 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                     },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                 )
+
+                if (panelEnabled) {
+                    HorizontalDivider()
+                    PanelContentSection(
+                        layers = layers,
+                        fontName = fontName,
+                        onImportLayer = { showImportKind = true },
+                        onMoveUp = { id -> updateLayers { PanelLayers.moveUp(it, id) } },
+                        onMoveDown = { id -> updateLayers { PanelLayers.moveDown(it, id) } },
+                        onToggleTop = { id -> updateLayers { PanelLayers.togglePinTop(it, id) } },
+                        onToggleBottom = { id -> updateLayers { PanelLayers.togglePinBottom(it, id) } },
+                        onToggleFixed = { id -> updateLayers { PanelLayers.toggleFixed(it, id) } },
+                        onDelete = { id -> updateLayers { PanelLayers.remove(it, id) } },
+                        onOpenLayer = { },
+                        onRenameLayer = { id ->
+                            pendingRenameId = id
+                            renameText = layers.firstOrNull { it.id == id }?.name ?: ""
+                            renameError = false
+                        },
+                        onPickFont = { fontPicker.launch(arrayOf("*/*")) },
+                        onResetFont = {
+                            settings.panelFontUri = null
+                            settings.panelFontName = null
+                            fontName = null
+                        }
+                    )
+                }
             }
 
             Text(
@@ -264,6 +387,79 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            if (showImportKind) {
+                AlertDialog(
+                    onDismissRequest = { showImportKind = false },
+                    title = { Text(stringResource(R.string.panel_import_kind_title)) },
+                    text = {
+                        Column {
+                            TextButton(onClick = {
+                                pendingImportKind = PanelLayerKind.IMAGE
+                                showImportKind = false
+                                layerPicker.launch(arrayOf("image/*"))
+                            }) { Text(stringResource(R.string.panel_import_image)) }
+                            TextButton(onClick = {
+                                pendingImportKind = PanelLayerKind.TEXT
+                                showImportKind = false
+                                layerPicker.launch(arrayOf("text/*", "application/octet-stream"))
+                            }) { Text(stringResource(R.string.panel_import_text)) }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showImportKind = false }) {
+                            Text(stringResource(R.string.action_cancel))
+                        }
+                    }
+                )
+            }
+
+            pendingRenameId?.let { id ->
+                AlertDialog(
+                    onDismissRequest = { pendingRenameId = null },
+                    title = { Text(stringResource(R.string.panel_rename_title)) },
+                    text = {
+                        OutlinedTextField(
+                            value = renameText,
+                            onValueChange = {
+                                renameText = it
+                                renameError = PanelLayers.isNameTaken(layers, it, id)
+                            },
+                            singleLine = true,
+                            isError = renameError,
+                            supportingText = {
+                                if (renameError) Text(stringResource(R.string.panel_rename_duplicate))
+                            }
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                updateLayers { PanelLayers.rename(it, id, renameText) }
+                                pendingRenameId = null
+                            },
+                            enabled = !renameError && renameText.isNotBlank()
+                        ) { Text(stringResource(R.string.action_confirm)) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingRenameId = null }) {
+                            Text(stringResource(R.string.action_cancel))
+                        }
+                    }
+                )
+            }
+
+            if (toastText != null) {
+                AlertDialog(
+                    onDismissRequest = { toastText = null },
+                    text = { Text(stringResource(toastText!!)) },
+                    confirmButton = {
+                        TextButton(onClick = { toastText = null }) {
+                            Text(stringResource(R.string.action_confirm))
+                        }
+                    }
+                )
+            }
         }
     }
 }
