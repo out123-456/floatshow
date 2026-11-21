@@ -13,7 +13,6 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.util.Log
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
@@ -94,14 +93,6 @@ class PanelWindow(
     private var followingPointer = false
     private var resizeGrip = PanelGrip.RIGHT_BOTTOM
     private var downOnBar = false
-    private var resizeLayoutListener: View.OnLayoutChangeListener? = null
-    private var resizeExpectedLeft = 0
-    private var resizeExpectedTop = 0
-    private var resizeExpectedRight = 0
-    private var resizeExpectedBottom = 0
-    private var resizeWindowOffsetX = 0
-    private var resizeWindowOffsetY = 0
-    private var resizeWindowAnchorActive = false
     private var resizeApplyPending = false
     private val resizeFrameCallback = Choreographer.FrameCallback {
         resizeApplyPending = false
@@ -471,7 +462,7 @@ class PanelWindow(
     /** 工具栏与边缘共用: 只整体移动, 不改尺寸 */
     private val dragListener = View.OnTouchListener { view, event ->
         // 手指按在工具按钮上时直接把事件交给按钮, 否则拖动监听会把点击吃掉
-        if (event.actionMasked == MotionEvent.ACTION_DOWN && hitsBarButton(view, event)) {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && hitsBarButton(event)) {
             return@OnTouchListener false
         }
         when (event.actionMasked) {
@@ -506,7 +497,7 @@ class PanelWindow(
     }
 
     /** DOWN 是否落在最小化/关闭按钮上: 用屏幕坐标比对, 不依赖布局层级 */
-    private fun hitsBarButton(view: View, event: MotionEvent): Boolean {
+    private fun hitsBarButton(event: MotionEvent): Boolean {
         val targets = listOf(minimizeView, closeView)
         val loc = IntArray(2)
         for (target in targets) {
@@ -614,7 +605,6 @@ class PanelWindow(
                 downRawY = event.rawY
                 startPanelGeometry = panel
                 resizeGrip = (view.tag as? PanelGrip) ?: PanelGrip.RIGHT_BOTTOM
-                beginResizeBoundaryTrace()
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - downRawX
@@ -633,69 +623,10 @@ class PanelWindow(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 flushResizeGeometryApply()
-                endResizeBoundaryTrace()
                 commit()
             }
         }
         true
-    }
-
-    /** 只记录实际窗口固定边发生偏移的帧, 用于区分几何计算与窗口布局问题. */
-    private fun beginResizeBoundaryTrace() {
-        val view = panelView ?: return
-        val initialLocation = IntArray(2)
-        view.getLocationOnScreen(initialLocation)
-        resizeExpectedLeft = initialLocation[0]
-        resizeExpectedTop = initialLocation[1]
-        resizeExpectedRight = initialLocation[0] + view.width
-        resizeExpectedBottom = initialLocation[1] + view.height
-        val params = panelParams ?: return
-        resizeWindowOffsetX = initialLocation[0] - params.x
-        resizeWindowOffsetY = initialLocation[1] - params.y
-        resizeWindowAnchorActive = true
-        val listener = View.OnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-            val location = IntArray(2)
-            v.getLocationOnScreen(location)
-            val actualLeft = location[0]
-            val actualTop = location[1]
-            val actualRight = actualLeft + v.width
-            val actualBottom = actualTop + v.height
-            val fixedEdgeMoved = when {
-                resizeGrip.affectsLeft -> actualRight != resizeExpectedRight
-                resizeGrip.affectsRight -> actualLeft != resizeExpectedLeft
-                else -> false
-            } || when {
-                resizeGrip.affectsTop -> actualBottom != resizeExpectedBottom
-                resizeGrip.affectsBottom -> actualTop != resizeExpectedTop
-                else -> false
-            }
-            if (fixedEdgeMoved) {
-                val fixedX = if (resizeGrip.affectsLeft) {
-                    "right=${actualRight - resizeExpectedRight}"
-                } else {
-                    "left=${actualLeft - resizeExpectedLeft}"
-                }
-                val fixedY = if (resizeGrip.affectsTop) {
-                    "bottom=${actualBottom - resizeExpectedBottom}"
-                } else {
-                    "top=${actualTop - resizeExpectedTop}"
-                }
-                Log.w(
-                    "FloatShowResize",
-                    "grip=$resizeGrip model=$panel actual=$actualLeft,$actualTop,${v.width},${v.height} " +
-                        "fixedDelta=$fixedX,$fixedY windowOffset=$resizeWindowOffsetX,$resizeWindowOffsetY"
-                )
-            }
-        }
-        resizeLayoutListener = listener
-        view.addOnLayoutChangeListener(listener)
-    }
-
-    private fun endResizeBoundaryTrace() {
-        val listener = resizeLayoutListener ?: return
-        panelView?.removeOnLayoutChangeListener(listener)
-        resizeLayoutListener = null
-        resizeWindowAnchorActive = false
     }
 
     /** 每个屏幕刷新帧最多更新一次悬浮窗, 保留该帧前最新的触摸几何. */
@@ -751,21 +682,8 @@ class PanelWindow(
         ) return
         params.width = panel.width
         params.height = panel.height
-        if (resizeWindowAnchorActive) {
-            params.x = when {
-                resizeGrip.affectsLeft -> resizeExpectedRight - panel.width - resizeWindowOffsetX
-                resizeGrip.affectsRight -> resizeExpectedLeft - resizeWindowOffsetX
-                else -> panel.x
-            }
-            params.y = when {
-                resizeGrip.affectsTop -> resizeExpectedBottom - panel.height - resizeWindowOffsetY
-                resizeGrip.affectsBottom -> resizeExpectedTop - resizeWindowOffsetY
-                else -> panel.y
-            }
-        } else {
-            params.x = panel.x
-            params.y = panel.y
-        }
+        params.x = panel.x
+        params.y = panel.y
         // 只更新窗口尺寸. 手柄用 MATCH_PARENT 自适应, 标题的遮盖由静态边距决定,
         // 每帧重排这些子 View 正是缩放不如参考流畅的原因.
         runCatching { wm.updateViewLayout(view, params) }
