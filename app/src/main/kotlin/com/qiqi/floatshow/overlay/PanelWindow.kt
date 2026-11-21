@@ -146,7 +146,9 @@ class PanelWindow(
         val view = BallView(service).apply {
             setOnTouchListener(ballTouchListener)
         }
-        val params = windowParams(ballSizePx, ballSizePx, layoutNoLimits = false).apply {
+        // 球也要 NO_LIMITS: 否则系统会把窗口压在状态栏下面, 拖到顶部就停住.
+        // 球不允许进挖孔, 这一条由 clampBall 负责.
+        val params = windowParams(ballSizePx, ballSizePx, layoutNoLimits = true).apply {
             x = ball.x
             y = ball.y
         }

@@ -41,7 +41,7 @@ object PanelLayout {
     }
 
     /**
-     * 面板位置约束. 唯一的硬要求: 最小化/关闭那颗按钮(工具栏右端 controlSize×controlSize)
+     * 面板位置约束. 唯一的硬要求: "最小化+关闭"那一块(工具栏右端 btnW × controlSize)
      * 完整落在安全区内. 面板其余部分可以整块出屏, 用户拖回来就能关.
      *
      * 一维各算一个"可行区间", 超出的那一侧就夹回来; 另一侧不受影响,
@@ -61,20 +61,23 @@ object PanelLayout {
         val usableTop = safe[1]
         val usableRight = screenWidth - safe[2]
         val usableBottom = screenHeight - safe[3]
+        // 两个按钮一起避开: 最小化与关闭是连着的两颗
+        val btnW = controlSize * 2
 
         // 按钮在 X 方向的可行区间: 按钮左边缘 >= 可用区左, 右边缘 <= 可用区右
-        val loX = usableLeft + controlSize - geometry.width
-        val hiX = usableRight - controlSize
-        // 按钮在 Y 方向: 工具栏在上时按钮占面板顶端, 在下时占底端
+        val loX = usableLeft + btnW - geometry.width
+        val hiX = usableRight - geometry.width
+        // 按钮在 Y 方向: 工具栏在上时按钮占面板顶端, 在下时占底端.
+        // 只约束按钮那一行, 面板其余部分可以整块出屏(下边缘能拖出屏幕底).
         val loY = if (toolbarAtBottom) {
             usableTop + controlSize - geometry.height
         } else {
             usableTop
         }
         val hiY = if (toolbarAtBottom) {
-            usableBottom - controlSize
-        } else {
             usableBottom - geometry.height
+        } else {
+            usableBottom - controlSize
         }
 
         val x = axis(geometry.x, loX, hiX)
