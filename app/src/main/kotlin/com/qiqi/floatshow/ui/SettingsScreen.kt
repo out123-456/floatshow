@@ -37,6 +37,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import com.qiqi.floatshow.data.RawImage
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.AlertDialog
@@ -51,6 +53,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -93,11 +99,20 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
     var renameText by remember { mutableStateOf("") }
     var renameError by remember { mutableStateOf(false) }
     var toastText by remember { mutableStateOf<Int?>(null) }
+    val scope = rememberCoroutineScope()
+    // 进度回调来自后台线程, 需要一个主线程投递入口
+    val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
     var pendingImportKind by remember { mutableStateOf(PanelLayerKind.IMAGE) }
     var openedLayerId by remember { mutableStateOf<String?>(null) }
     var zoomUri by remember { mutableStateOf<Uri?>(null) }
     var zoomIsSvg by remember { mutableStateOf(false) }
     var replacingLayerId by remember { mutableStateOf<String?>(null) }
+    /** 大图导入后待确认是否转 Raw 的 uri */
+    var pendingRawUri by remember { mutableStateOf<Uri?>(null) }
+    /** 转换进度 0..100, null 表示不在转换 */
+    var rawProgress by remember { mutableStateOf<Int?>(null) }
+    /** 已确认转过 Raw 的 uri(文件真的存在时才有) */
+    var rawReady by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     // 服务会写 serviceRunning, 面板也会自己写 panelEnabled(在面板上关掉时),
     // 这里跟着刷新, 否则主界面开关会一直停在旧状态
@@ -180,6 +195,8 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 )
                 if (replaceId != null) updateLayers { PanelLayers.replaceWith(it, replaceId, layer) }
                 else updateLayers { PanelLayers.add(it, layer) }
+                // 大图直接压缩流显示会明显慢, 导入后问一次要不要转 Raw
+                maybeAskRaw(uri)
             }
             PanelLayerKind.TEXT -> {
                 if (!PanelContentPicker.isTextFile(context, uri)) {
@@ -199,6 +216,39 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 )
                 if (replaceId != null) updateLayers { PanelLayers.replaceWith(it, replaceId, layer) }
                 else updateLayers { PanelLayers.add(it, layer) }
+            }
+        }
+    }
+
+    /**
+     * 超过 4096 边长就提示转 Raw. 4096 以下实测感觉不到解码, 转 Raw 只是白占磁盘.
+     * SVG 是矢量, 没有像素可转.
+     */
+    fun maybeAskRaw(uri: Uri) {
+        if (PanelContentPicker.isSvg(context, uri)) return
+        val size = PanelContentPicker.imageSize(context, uri) ?: return
+        if (maxOf(size.first, size.second) < RAW_ASK_SIDE) return
+        if (RawImage.exists(context, uri)) return
+        pendingRawUri = uri
+    }
+
+    /** 当场转换并显示线性进度; 转完把该 uri 记为可用 */
+    fun convertRaw(uri: Uri) {
+        pendingRawUri = null
+        rawProgress = 0
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                RawImage.convert(context, uri) { percent ->
+                    // 进度回调来自后台线程, 转回主线程更新
+                    mainHandler.post { rawProgress = percent }
+                }
+            }
+            rawProgress = null
+            if (ok) {
+                rawReady = rawReady + uri.toString()
+                toastText = R.string.panel_raw_done
+            } else {
+                toastText = R.string.panel_raw_failed
             }
         }
     }
@@ -446,7 +496,26 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                         zoomUri = u
                         zoomIsSvg = svg
                     },
-                    onDismiss = { openedLayerId = null }
+                    onDismiss = { openedLayerId = null },
+                    // rawReady 参与判断: 它变了(转换完成/删除)才会重组, 抽屉里的按钮文案跟着换
+                    rawState = when {
+                        layer.kind != PanelLayerKind.IMAGE -> RawState.NONE
+                        PanelContentPicker.isSvg(context, Uri.parse(layer.content)) -> RawState.NONE
+                        layer.content in rawReady || RawImage.exists(context, Uri.parse(layer.content)) ->
+                            RawState.CONVERTED
+                        else -> RawState.AVAILABLE
+                    },
+                    onToggleRaw = {
+                        val layerUri = Uri.parse(layer.content)
+                        if (RawImage.exists(context, layerUri)) {
+                            // 删除 Raw 只删缓存文件, 层与内容都还在
+                            runCatching { RawImage.delete(context, layerUri) }
+                            rawReady = rawReady - layer.content
+                            toastText = R.string.panel_raw_deleted
+                        } else {
+                            convertRaw(layerUri)
+                        }
+                    }
                 )
             }
         }
@@ -520,6 +589,63 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 )
             }
 
+            // 大图导入后询问是否转 Raw
+            val askUri = pendingRawUri
+            if (askUri != null) {
+                val size = remember(askUri) { PanelContentPicker.imageSize(context, askUri) }
+                AlertDialog(
+                    onDismissRequest = { pendingRawUri = null },
+                    title = { Text(stringResource(R.string.panel_raw_ask_title)) },
+                    // 磁盘占用按 ARGB_8888 估: 每像素 4 字节
+                    text = {
+                        if (size != null) {
+                            Text(
+                                stringResource(
+                                    R.string.panel_raw_ask_message,
+                                    size.first,
+                                    size.second,
+                                    ((size.first.toLong() * size.second * 4) / (1024 * 1024)).toInt()
+                                )
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { convertRaw(askUri) }) {
+                            Text(stringResource(R.string.action_convert))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingRawUri = null }) {
+                            Text(stringResource(R.string.action_cancel))
+                        }
+                    }
+                )
+            }
+
+            // 转 Raw 的线性进度
+            val progress = rawProgress
+            if (progress != null) {
+                AlertDialog(
+                    // 转换期间不允许取消: 半途中断会留下半个文件
+                    onDismissRequest = { },
+                    title = { Text(stringResource(R.string.panel_raw_converting)) },
+                    text = {
+                        Column {
+                            LinearProgressIndicator(
+                                progress = { progress / 100f },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text(
+                                text = "$progress%",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    },
+                    confirmButton = { }
+                )
+            }
+
             if (toastText != null) {
                 AlertDialog(
                     onDismissRequest = { toastText = null },
@@ -534,6 +660,9 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         }
     }
 }
+
+/** 超过这个边长的大图才建议转 Raw; 4096 实测感觉不到解码 */
+private const val RAW_ASK_SIDE = 4096
 
 /** Android 13 起看权限, 更早的版本看通知开关 */
 private fun notificationsEnabled(context: android.content.Context): Boolean =

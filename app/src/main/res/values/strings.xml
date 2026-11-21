@@ -155,4 +155,13 @@
     <string name="lab_drawer_text">抽屉内容 / Drawer content</string>
     <string name="lab_sheet_text">底部抽屉内容 / Sheet content</string>
     <string name="panel_zoom_title">查看</string>
+    <string name="panel_layer_sheet_convert_raw">转为 Raw</string>
+    <string name="panel_layer_sheet_delete_raw">删除 Raw</string>
+    <string name="panel_raw_ask_title">转为 Raw?</string>
+    <string name="panel_raw_ask_message">这张图 %1$d × %2$d, 直接从压缩文件里显示会很慢.\n转成 Raw 后只解压一次, 之后读取与缩放都不再解压, 但会占用约 %3$d MB 磁盘.\n\n可以随时在层抽屉里删除 Raw.</string>
+    <string name="panel_raw_converting">正在转换…</string>
+    <string name="panel_raw_done">已转为 Raw</string>
+    <string name="panel_raw_failed">转换失败, 内存不足</string>
+    <string name="panel_raw_deleted">已删除 Raw</string>
+    <string name="action_convert">转换</string>
 </resources>

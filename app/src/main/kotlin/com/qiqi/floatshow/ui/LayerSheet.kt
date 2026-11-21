@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -55,6 +56,9 @@ fun LayerSheet(
     onTextChanged: (String) -> Unit,
     onOpenZoom: (Uri, Boolean) -> Unit,
     onDismiss: () -> Unit,
+    /** Raw 的状态; 不适用时传 null, 那一格就不出现 */
+    rawState: RawState? = null,
+    onToggleRaw: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var svgScale by remember(layer.id) { mutableStateOf(1f) }
@@ -94,14 +98,28 @@ fun LayerSheet(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // 三个按钮分居左右: 替换居左, Raw 居中, 删除居右.
+            // 替换与删除是相反的操作, 挨在一起容易误触, 中间必须隔开
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(onClick = onReplace) {
                     Text(stringResource(R.string.panel_layer_sheet_replace))
                 }
+                Spacer(modifier = Modifier.weight(1f))
+                // Raw 转换只对位图有意义; 有些图本来就不该转, 此时整块不存在
+                if (onToggleRaw != null && rawState != RawState.NONE) {
+                    TextButton(onClick = onToggleRaw) {
+                        Text(
+                            stringResource(
+                                if (rawState == RawState.CONVERTED) R.string.panel_layer_sheet_delete_raw
+                                else R.string.panel_layer_sheet_convert_raw
+                            )
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.weight(1f))
                 TextButton(onClick = {
                     flushText()
                     onDelete()
@@ -210,4 +228,14 @@ fun LayerSheet(
             )
         }
     }
+}
+
+/** 层内容的 Raw 缓存状态 */
+enum class RawState {
+    /** 不能转(文本层、SVG) */
+    NONE,
+    /** 可以转, 还没转 */
+    AVAILABLE,
+    /** 已经转好, 使用中 */
+    CONVERTED
 }

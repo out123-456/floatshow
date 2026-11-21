@@ -52,6 +52,19 @@ object PanelContentPicker {
      * 只判断文件是否可用, 不把整张图读进内存.
      * SVG 走矢量解析器(SVG.getFromInputStream), 位图走 inJustDecodeBounds 只读尺寸.
      */
+    /** 只读文件头拿尺寸, 读不到返回 null */
+    fun imageSize(context: Context, uri: Uri): Pair<Int, Int>? = runCatching {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, options)
+        }
+        if (options.outWidth > 0 && options.outHeight > 0) {
+            options.outWidth to options.outHeight
+        } else {
+            null
+        }
+    }.getOrNull()
+
     fun canReadImage(context: Context, uri: Uri): Boolean = runCatching {
         if (context.contentResolver.getType(uri) == "image/svg+xml" || isSvg(context, uri)) {
             // 解析成功就说明文件可用; 已经有内置的 androidsvg, 不再引入别的库
