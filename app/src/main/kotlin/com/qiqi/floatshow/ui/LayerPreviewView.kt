@@ -108,8 +108,10 @@ class LayerPreviewView(context: Context) : View(context) {
                     return@post
                 }
                 bitmap = loadedBitmap
-                if (loadedBitmap != null && uri != null) {
-                    OverviewCache.put(uri.toString(), loadedBitmap, width.toInt(), height.toInt())
+                // 用局部 val 再判断: loadedBitmap 被闭包捕获, 编译器不给它做 smart cast
+                val ready = loadedBitmap
+                if (ready != null && uri != null) {
+                    OverviewCache.put(uri.toString(), ready, width.toInt(), height.toInt())
                 }
                 svg = loadedSvg
                 svgWidth = width
