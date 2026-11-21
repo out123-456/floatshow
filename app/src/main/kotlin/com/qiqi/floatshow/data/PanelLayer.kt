@@ -66,3 +66,93 @@ data class PanelLayer(
         }
     }
 }
+
+/**
+ * 层列表的纯逻辑: 移动、标记、替换、删除.
+ * 列表顺序 = 原堆内位置, 索引 0 是最底层.
+ * 置顶/置底只打标记, 行本身不动; 实际渲染层级由 [renderOrder] 决定.
+ */
+object PanelLayers {
+
+    /** 渲染顺序: BOTTOM 堆在最底, 无标记居中, TOP 堆在最上; 各堆内保持列表顺序 */
+    fun renderOrder(layers: List<PanelLayer>): List<PanelLayer> = buildList {
+        addAll(layers.filter { it.pin == PanelLayerPin.BOTTOM })
+        addAll(layers.filter { it.pin == PanelLayerPin.NONE })
+        addAll(layers.filter { it.pin == PanelLayerPin.TOP })
+    }
+
+    /** 该层现在能不能置顶: 已置底的层不能, 已经有别的层置顶时也不能; 已置顶时允许再次点击取消 */
+    fun canPinTop(layers: List<PanelLayer>, id: String): Boolean {
+        val layer = layers.firstOrNull { it.id == id } ?: return false
+        return when (layer.pin) {
+            PanelLayerPin.TOP -> true
+            PanelLayerPin.BOTTOM -> false
+            PanelLayerPin.NONE -> layers.none { it.pin == PanelLayerPin.TOP }
+        }
+    }
+
+    fun canPinBottom(layers: List<PanelLayer>, id: String): Boolean {
+        val layer = layers.firstOrNull { it.id == id } ?: return false
+        return when (layer.pin) {
+            PanelLayerPin.BOTTOM -> true
+            PanelLayerPin.TOP -> false
+            PanelLayerPin.NONE -> layers.none { it.pin == PanelLayerPin.BOTTOM }
+        }
+    }
+
+    fun togglePinTop(layers: List<PanelLayer>, id: String): List<PanelLayer> =
+        if (!canPinTop(layers, id)) layers
+        else layers.map { if (it.id == id) it.copy(pin = it.pin.toggle(PanelLayerPin.TOP)) else it }
+
+    fun togglePinBottom(layers: List<PanelLayer>, id: String): List<PanelLayer> =
+        if (!canPinBottom(layers, id)) layers
+        else layers.map { if (it.id == id) it.copy(pin = it.pin.toggle(PanelLayerPin.BOTTOM)) else it }
+
+    /** 固定只是标记, 不影响层级 */
+    fun toggleFixed(layers: List<PanelLayer>, id: String): List<PanelLayer> =
+        layers.map { if (it.id == id) it.copy(fixed = !it.fixed) else it }
+
+    /** 上移 = 往层级高的方向(列表靠后)挪一格; 索引 0 不能上移 */
+    fun moveUp(layers: List<PanelLayer>, id: String): List<PanelLayer> {
+        val index = layers.indexOfFirst { it.id == id }
+        if (index <= 0) return layers
+        return layers.swap(index, index - 1)
+    }
+
+    /** 下移 = 往层级低的方向挪一格; 末项不能下移 */
+    fun moveDown(layers: List<PanelLayer>, id: String): List<PanelLayer> {
+        val index = layers.indexOfFirst { it.id == id }
+        if (index < 0 || index >= layers.lastIndex) return layers
+        return layers.swap(index, index + 1)
+    }
+
+    fun canMoveUp(layers: List<PanelLayer>, id: String): Boolean =
+        layers.indexOfFirst { it.id == id } > 0
+
+    fun canMoveDown(layers: List<PanelLayer>, id: String): Boolean {
+        val index = layers.indexOfFirst { it.id == id }
+        return index >= 0 && index < layers.lastIndex
+    }
+
+    /** 替换只换内容, 层级、标记、固定一律不动 */
+    fun replaceContent(layers: List<PanelLayer>, id: String, content: String): List<PanelLayer> =
+        layers.map { if (it.id == id) it.copy(content = content) else it }
+
+    fun remove(layers: List<PanelLayer>, id: String): List<PanelLayer> = layers.filterNot { it.id == id }
+
+    fun add(layer: PanelLayer, layers: List<PanelLayer>): List<PanelLayer> = layers + layer
+
+    /** 只有最底层(索引 0)才是背景层 */
+    fun hasBackground(layers: List<PanelLayer>): Boolean = layers.isNotEmpty()
+
+    private fun List<PanelLayer>.swap(a: Int, b: Int): List<PanelLayer> {
+        val list = toMutableList()
+        val tmp = list[a]
+        list[a] = list[b]
+        list[b] = tmp
+        return list
+    }
+
+    private fun PanelLayerPin.toggle(target: PanelLayerPin): PanelLayerPin =
+        if (this == target) PanelLayerPin.NONE else target
+}
