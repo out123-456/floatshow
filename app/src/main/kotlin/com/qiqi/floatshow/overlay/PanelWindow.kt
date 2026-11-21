@@ -202,7 +202,6 @@ class PanelWindow(
         panelParams = params
 
         setBarAtBottom(toolbarAtBottom, force = true)
-        updateBarOverflow(panel.width)
     }
 
     private var edgeThicknessPx = 1
@@ -238,52 +237,33 @@ class PanelWindow(
 
     // ── 工具栏 ──────────────────────────────────────────────
 
-    /**
-     * 工具栏. 用重叠布局而不是横排: 宽度不够时按 z 序互相覆盖, 谁也不被移除.
-     * 叠放次序(从下往上): 标题 → 最小化 → 关闭. 关闭始终在最上层, 也始终在最右.
-     */
-    private fun buildBar(): FrameLayout {
-        val barView = FrameLayout(service).apply {
+    /** 工具栏: 标题 → 最小化 → 关闭 依次叠放, 具体位置见 [PanelToolbar] */
+    private fun buildBar(): PanelToolbar {
+        val barView = PanelToolbar(service, controlSizePx).apply {
+            setBackgroundColor(barColor())
             setOnTouchListener(dragListener)
         }
 
         val title = TextView(service).apply {
             text = service.getString(R.string.panel_title)
             maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
+            // 不换行、不加省略号: 放不下的字符由上层按钮盖住, 而不是被截断
+            setHorizontallyScrolling(true)
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
             setTextColor(inkColor())
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), 0, controlSizePx * 2, 0)
+            setPadding(dp(12), 0, 0, 0)
         }
-        barView.addView(
-            title,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            ).apply { gravity = Gravity.START }
-        )
-        titleView = title
-
         val minimize = barButton(R.drawable.ic_panel_minimize, inkColor()) { collapseToBall() }
-        barView.addView(
-            minimize,
-            FrameLayout.LayoutParams(controlSizePx, controlSizePx).apply {
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                marginEnd = controlSizePx
-            }
-        )
-        minimizeView = minimize
-
         val close = barButton(R.drawable.ic_panel_close, Color.argb(255, 220, 80, 80)) { onClose() }
-        barView.addView(
-            close,
-            FrameLayout.LayoutParams(controlSizePx, controlSizePx).apply {
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            }
-        )
-        closeView = close
 
+        barView.addView(title, FrameLayout.LayoutParams(controlSizePx, controlSizePx))
+        barView.addView(minimize, FrameLayout.LayoutParams(controlSizePx, controlSizePx))
+        barView.addView(close, FrameLayout.LayoutParams(controlSizePx, controlSizePx))
+
+        titleView = title
+        minimizeView = minimize
+        closeView = close
         return barView
     }
 
@@ -298,6 +278,8 @@ class PanelWindow(
             setImageResource(iconRes)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setColorFilter(tint)
+            // 不透明底色: 按钮靠它盖住下层的标题与最小化
+            setBackgroundColor(barColor())
             setPadding(pad, pad, pad, pad)
             isClickable = true
             isFocusable = false
@@ -393,41 +375,6 @@ class PanelWindow(
         }
     }
 
-    /**
-     * 宽度不够时靠重叠解决, 不移除任何部件:
-     * 关闭压最小化, 最小化压标题. 三者始终存在, 只是被上层的盖住一部分.
-     * 标题与两个按钮都在右端对齐, 所以窗口再窄关闭按钮也不会跑出屏幕.
-     */
-    private fun updateBarOverflow(widthPx: Int) {
-        val title = titleView ?: return
-        val close = closeView ?: return
-        val minimize = minimizeView ?: return
-        val closeSize = controlSizePx
-        val minimizeSize = if (widthPx >= closeSize * 2) controlSizePx else widthPx - closeSize
-        val minimizeParams = minimize.layoutParams as? FrameLayout.LayoutParams
-        if (minimizeParams != null && minimizeParams.width != minimizeSize.coerceAtLeast(0)) {
-            minimizeParams.width = minimizeSize.coerceAtLeast(0)
-            minimize.requestLayout()
-        }
-        val minimizeParamsBar = minimize.layoutParams as? FrameLayout.LayoutParams
-        if (minimizeParamsBar != null) {
-            val margin = closeSize
-            if (minimizeParamsBar.marginEnd != margin) {
-                minimizeParamsBar.marginEnd = margin
-                minimize.requestLayout()
-            }
-        }
-        // 标题占满左侧, 右侧留给两个按钮, 不够就被盖住
-        val titleParams = title.layoutParams as? FrameLayout.LayoutParams
-        if (titleParams != null && titleParams.marginEnd != closeSize * 2) {
-            titleParams.marginEnd = closeSize * 2
-            title.requestLayout()
-        }
-        // 关闭按钮永远可见且完整
-        if (close.visibility != View.VISIBLE) close.visibility = View.VISIBLE
-        if (minimize.visibility != View.VISIBLE) minimize.visibility = View.VISIBLE
-        if (title.visibility != View.VISIBLE) title.visibility = View.VISIBLE
-    }
 
     // ── 触摸: 球 ────────────────────────────────────────────
 
@@ -779,6 +726,13 @@ class PanelWindow(
         val night = (service.resources.configuration.uiMode and
             Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         return if (night) Color.argb(240, 24, 24, 26) else Color.argb(245, 252, 252, 252)
+    }
+
+    /** 工具栏与按钮用不透明底色, 才能做到"后面的盖住前面的" */
+    private fun barColor(): Int {
+        val night = (service.resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        return if (night) Color.rgb(36, 36, 38) else Color.rgb(246, 246, 246)
     }
 
     private fun strokeColor(): Int {
