@@ -337,12 +337,25 @@ class PanelWindow(
             when (grip) {
                 // 一边定死厚度, 另一边 MATCH_PARENT: 窗口尺寸变化时手柄自动跟着长, 不用每帧重排
                 PanelGrip.LEFT_EDGE -> {
-                    lp.width = t; lp.height = ViewGroup.LayoutParams.MATCH_PARENT
+                    lp.width = t
+                    lp.height = ViewGroup.LayoutParams.MATCH_PARENT
                     lp.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                    lp.topMargin = 0
+                    lp.bottomMargin = 0
                 }
                 PanelGrip.RIGHT_EDGE -> {
-                    lp.width = t; lp.height = ViewGroup.LayoutParams.MATCH_PARENT
+                    // 右侧边手柄必须让开工具栏那一段, 否则它会压在关闭/最小化按钮上,
+                    // 按钮永远收不到触摸 —— 这就是"关闭几乎点不到"的原因
+                    lp.width = t
+                    lp.height = ViewGroup.LayoutParams.MATCH_PARENT
                     lp.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                    if (toolbarAtBottom) {
+                        lp.topMargin = 0
+                        lp.bottomMargin = controlSizePx
+                    } else {
+                        lp.topMargin = controlSizePx
+                        lp.bottomMargin = 0
+                    }
                 }
                 PanelGrip.TOP_EDGE -> {
                     lp.width = ViewGroup.LayoutParams.MATCH_PARENT; lp.height = t
