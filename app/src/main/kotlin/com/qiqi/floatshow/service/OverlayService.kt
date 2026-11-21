@@ -174,6 +174,11 @@ class OverlayService : Service() {
                 gravity = Gravity.TOP or Gravity.START
                 x = left
                 y = top
+                // 准星允许画进挖孔区(已有 NO_LIMITS 让它能超出屏幕范围)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                }
             }
             runCatching { windowManager.addView(view, newParams) }
                 .onSuccess { crosshairParams = newParams }
