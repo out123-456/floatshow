@@ -24,6 +24,8 @@ enum class PanelLayerPin { NONE, TOP, BOTTOM }
  */
 data class PanelLayer(
     val id: String,
+    /** 显示名. 同一时刻列表内不允许重名, 改名要经过 [PanelLayers.isNameTaken] 检查 */
+    val name: String,
     val kind: PanelLayerKind,
     val content: String,
     val pin: PanelLayerPin = PanelLayerPin.NONE,
@@ -31,6 +33,7 @@ data class PanelLayer(
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
+        put("name", name)
         put("kind", kind.name)
         put("content", content)
         put("pin", pin.name)
@@ -40,6 +43,7 @@ data class PanelLayer(
     companion object {
         fun fromJson(json: JSONObject): PanelLayer = PanelLayer(
             id = json.optString("id"),
+            name = json.optString("name"),
             kind = runCatching { PanelLayerKind.valueOf(json.optString("kind")) }
                 .getOrDefault(PanelLayerKind.TEXT),
             content = json.optString("content"),
@@ -59,7 +63,8 @@ data class PanelLayer(
                     for (i in 0 until array.length()) {
                         val item = array.optJSONObject(i) ?: continue
                         val layer = fromJson(item)
-                        if (layer.id.isNotEmpty()) add(layer)
+                        if (layer.id.isEmpty()) continue
+                        add(if (layer.name.isBlank()) layer.copy(name = fallbackName(layer)) else layer)
                     }
                 }
             }.getOrDefault(emptyList())
@@ -140,7 +145,43 @@ object PanelLayers {
 
     fun remove(layers: List<PanelLayer>, id: String): List<PanelLayer> = layers.filterNot { it.id == id }
 
-    fun add(layer: PanelLayer, layers: List<PanelLayer>): List<PanelLayer> = layers + layer
+    /** 名称是否已被别的层占用([excludeId] 是正在改名的那个层) */
+    fun isNameTaken(layers: List<PanelLayer>, name: String, excludeId: String? = null): Boolean {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return true
+        return layers.any { it.id != excludeId && it.name == trimmed }
+    }
+
+    /** 默认名: 图片取文件名, 文本取前几个字; 重名时自动加序号 */
+    fun fallbackName(layer: PanelLayer): String {
+        val base = when (layer.kind) {
+            PanelLayerKind.IMAGE -> {
+                val raw = layer.content.substringAfterLast('/').substringAfterLast('%')
+                raw.substringBeforeLast('.').trim().ifEmpty { "图片层" }
+            }
+            PanelLayerKind.TEXT -> layer.content.trim().take(12).ifEmpty { "文本层" }
+        }
+        return base
+    }
+
+    /** 加入列表并保证不重名 */
+    fun add(layers: List<PanelLayer>, layer: PanelLayer): List<PanelLayer> {
+        val desired = layer.name.trim().ifEmpty { fallbackName(layer) }
+        var name = desired
+        var index = 2
+        while (isNameTaken(layers, name)) {
+            name = desired + " " + index
+            index++
+        }
+        return layers + layer.copy(name = name)
+    }
+
+    /** 改名. 重名或空名返回原列表, 由调用方提示 */
+    fun rename(layers: List<PanelLayer>, id: String, newName: String): List<PanelLayer> {
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty() || isNameTaken(layers, trimmed, id)) return layers
+        return layers.map { if (it.id == id) it.copy(name = trimmed) else it }
+    }
 
     /** 只有最底层(索引 0)才是背景层 */
     fun hasBackground(layers: List<PanelLayer>): Boolean = layers.isNotEmpty()
