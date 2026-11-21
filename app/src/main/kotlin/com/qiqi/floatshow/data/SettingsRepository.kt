@@ -86,6 +86,15 @@ class SettingsRepository(context: Context) {
         get() = prefs.getInt(KEY_PANEL_HEIGHT, 0)
         set(v) = prefs.edit { putInt(KEY_PANEL_HEIGHT, v) }
 
+    /** 悬浮球左上角坐标(px). 与面板位置分开存, 否则收成球会把面板几何覆盖掉 */
+    var panelBallX: Int
+        get() = prefs.getInt(KEY_PANEL_BALL_X, UNSET_POSITION)
+        set(v) = prefs.edit { putInt(KEY_PANEL_BALL_X, v) }
+
+    var panelBallY: Int
+        get() = prefs.getInt(KEY_PANEL_BALL_Y, UNSET_POSITION)
+        set(v) = prefs.edit { putInt(KEY_PANEL_BALL_Y, v) }
+
     var panelExpanded: Boolean
         get() = prefs.getBoolean(KEY_PANEL_EXPANDED, false)
         set(v) = prefs.edit { putBoolean(KEY_PANEL_EXPANDED, v) }
@@ -132,6 +141,8 @@ class SettingsRepository(context: Context) {
         const val KEY_PANEL_ENABLED = "panel_enabled"
         const val KEY_PANEL_X = "panel_x"
         const val KEY_PANEL_Y = "panel_y"
+        const val KEY_PANEL_BALL_X = "panel_ball_x"
+        const val KEY_PANEL_BALL_Y = "panel_ball_y"
         const val KEY_PANEL_WIDTH = "panel_width_px"
         const val KEY_PANEL_HEIGHT = "panel_height_px"
         const val KEY_PANEL_EXPANDED = "panel_expanded"
