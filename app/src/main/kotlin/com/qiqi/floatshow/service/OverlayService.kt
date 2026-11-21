@@ -43,6 +43,8 @@ class OverlayService : Service() {
     private var crosshairView: CrosshairView? = null
     private var crosshairParams: WindowManager.LayoutParams? = null
     private var panel: PanelWindow? = null
+    /** 面板当前用的字体 uri, 用来判断换字体后要不要重建窗口 */
+    private var lastFontUri: String? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private var pendingSync = false
@@ -122,6 +124,12 @@ class OverlayService : Service() {
     }
 
     private fun sync() {
+        // 字体在 PanelWindow 构造时读到字段里, 换字体必须重建悬浮窗才会生效
+        if (panel != null && lastFontUri != settings.panelFontUri) {
+            panel?.remove()
+            panel = null
+        }
+        lastFontUri = settings.panelFontUri
         applyCrosshair()
         applyPanel()
         // 服务常驻: 前两种层全部收起也不自停, 只有被系统回收才结束, 下次开关不用重建

@@ -87,6 +87,7 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
     var serviceRunning by remember { mutableStateOf(settings.serviceRunning) }
     var layers by remember { mutableStateOf(settings.panelLayers) }
     var fontName by remember { mutableStateOf(settings.panelFontName) }
+    var fontFailed by remember { mutableStateOf(false) }
     var showImportKind by remember { mutableStateOf(false) }
     var pendingRenameId by remember { mutableStateOf<String?>(null) }
     var renameText by remember { mutableStateOf("") }
@@ -224,9 +225,23 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
             )
         }
         val name = PanelContentPicker.textFileName(context, uri) ?: "字体"
+        // 先试解析一次: 解析不了就不保存, 直接把字体名标红
+        val typeface = runCatching {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                android.graphics.Typeface.Builder(pfd.fileDescriptor).build()
+            }
+        }.getOrNull()
+        if (typeface == null) {
+            settings.panelFontName = name
+            fontName = name
+            settings.panelFontUri = null
+            fontFailed = true
+            return@rememberLauncherForActivityResult
+        }
         settings.panelFontUri = uri.toString()
         settings.panelFontName = name
         fontName = name
+        fontFailed = false
     }
 
     val imagePicker = rememberLauncherForActivityResult(
@@ -372,7 +387,6 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                     HorizontalDivider()
                     PanelContentSection(
                         layers = layers,
-                        fontName = fontName,
                         onImportLayer = { showImportKind = true },
                         onMoveUp = { id -> updateLayers { PanelLayers.moveUp(it, id) } },
                         onMoveDown = { id -> updateLayers { PanelLayers.moveDown(it, id) } },
@@ -385,16 +399,23 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                             pendingRenameId = id
                             renameText = layers.firstOrNull { it.id == id }?.name ?: ""
                             renameError = false
-                        },
-                        onPickFont = { fontPicker.launch(arrayOf("*/*")) },
-                        onResetFont = {
-                            settings.panelFontUri = null
-                            settings.panelFontName = null
-                            fontName = null
                         }
                     )
                 }
             }
+
+            // 字体卡片: 与准星/面板同级
+            FontCard(
+                fontName = fontName,
+                failed = fontFailed,
+                onPickFont = { fontPicker.launch(arrayOf("*/*")) },
+                onResetFont = {
+                    settings.panelFontUri = null
+                    settings.panelFontName = null
+                    fontName = null
+                    fontFailed = false
+                }
+            )
 
             Text(
                 text = stringResource(R.string.settings_footer_hint),

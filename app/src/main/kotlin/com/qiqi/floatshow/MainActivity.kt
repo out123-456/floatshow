@@ -12,6 +12,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.text.font.FontFamily
+import com.qiqi.floatshow.data.SettingsRepository
+import com.qiqi.floatshow.text.FontLoader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.qiqi.floatshow.ui.DesignLabScreen
 import com.qiqi.floatshow.ui.SettingsScreen
 import com.qiqi.floatshow.ui.theme.FloatshowTheme
@@ -49,7 +56,27 @@ class MainActivity : ComponentActivity() {
         }
         hideStatusBar()
         setContent {
-            FloatshowTheme {
+            // 字体是全局的: 主界面与悬浮面板用同一份 Typeface.
+            // uri 存在 SharedPreferences 里, 跟着 pref 变化更新, 换字体后立刻生效.
+            val settings = remember { SettingsRepository(this) }
+            var fontUri by remember { mutableStateOf(settings.panelFontUri) }
+            DisposableEffect(settings) {
+                val listener =
+                    android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                        if (key == SettingsRepository.KEY_PANEL_FONT_URI) {
+                            fontUri = settings.panelFontUri
+                        }
+                    }
+                settings.prefs.registerOnSharedPreferenceChangeListener(listener)
+                onDispose { settings.prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+            }
+            // 解析字体是 IO, 放到后台; 期间先沿用系统字体, 完成后自动换掉
+            val fontFamily by produceState<FontFamily?>(null, fontUri) {
+                value = if (fontUri == null) null else withContext(Dispatchers.IO) {
+                    FontLoader.load(this@MainActivity, fontUri)?.let(::FontFamily)
+                }
+            }
+            FloatshowTheme(fontFamily = fontFamily) {
                 var showLab by remember { mutableStateOf(false) }
                 if (showLab) {
                     DesignLabScreen(onBack = { showLab = false })

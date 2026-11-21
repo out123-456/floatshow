@@ -18,6 +18,8 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import com.qiqi.floatshow.R
+import com.qiqi.floatshow.data.SettingsRepository
+import com.qiqi.floatshow.text.FontLoader
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -56,6 +58,8 @@ class PanelWindow(
     private val wm = service.getSystemService(Service.WINDOW_SERVICE) as WindowManager
     private val density = service.resources.displayMetrics.density
     private val touchSlop = ViewConfiguration.get(service).scaledTouchSlop
+    /** 用户导入的字体, 与主界面共用同一份 Typeface; null 表示系统字体 */
+    private val panelTypeface = FontLoader.load(service, SettingsRepository(service).panelFontUri)
 
     /** 挖孔四条边, 顺序 左/上/右/下 */
     private fun safeEdgeArray(): IntArray {
@@ -293,6 +297,7 @@ class PanelWindow(
             // 不换行、不加省略号: 放不下的字符由上层按钮盖住, 而不是被截断
             setHorizontallyScrolling(true)
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
+            panelTypeface?.let { typeface = it }
             setTextColor(inkColor())
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), 0, 0, 0)
@@ -676,7 +681,10 @@ class PanelWindow(
         layoutNoLimits: Boolean
     ): WindowManager.LayoutParams {
         var flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            // 状态栏存在时窗口区域从状态栏下沿开始, y=0 会显示在状态栏下面.
+            // LAYOUT_IN_SCREEN 让坐标原点回到物理屏幕左上角, 状态栏在不在都不影响.
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
         if (layoutNoLimits) flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         val params = WindowManager.LayoutParams(
             width,

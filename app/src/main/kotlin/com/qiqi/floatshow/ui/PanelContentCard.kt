@@ -17,7 +17,9 @@ import androidx.compose.material.icons.rounded.Notes
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.VerticalAlignBottom
 import androidx.compose.material.icons.rounded.VerticalAlignTop
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Card
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -42,7 +45,6 @@ import com.qiqi.floatshow.data.PanelLayers
 @Composable
 fun PanelContentSection(
     layers: List<PanelLayer>,
-    fontName: String?,
     onImportLayer: () -> Unit,
     onMoveUp: (String) -> Unit,
     onMoveDown: (String) -> Unit,
@@ -52,8 +54,6 @@ fun PanelContentSection(
     onDelete: (String) -> Unit,
     onOpenLayer: (String) -> Unit,
     onRenameLayer: (String) -> Unit,
-    onPickFont: () -> Unit,
-    onResetFont: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -87,9 +87,6 @@ fun PanelContentSection(
             )
         }
 
-        HorizontalDivider()
-
-        FontRow(fontName = fontName, onPickFont = onPickFont, onResetFont = onResetFont)
     }
 }
 
@@ -202,33 +199,43 @@ private fun SmallAction(
     }
 }
 
+/**
+ * 字体卡片: 与准星、悬浮面板同级, 独占一张 Card.
+ * 版式照抄未展开的悬浮面板卡片: 左边标题"字体", 中间字体名, 右边两个操作.
+ * 字体加载失败时字体名标错误色, 而不是弹提示.
+ */
 @Composable
-private fun FontRow(
+fun FontCard(
     fontName: String?,
+    failed: Boolean,
     onPickFont: () -> Unit,
     onResetFont: () -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = stringResource(R.string.panel_font),
-            style = MaterialTheme.typography.bodyMedium
+    Card(modifier = Modifier.fillMaxWidth()) {
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.panel_font)) },
+            supportingContent = {
+                Text(
+                    text = fontName ?: stringResource(R.string.panel_font_system),
+                    // 失败时用错误色标出字体名
+                    color = if (failed) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            trailingContent = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onPickFont) {
+                        Text(stringResource(R.string.panel_font_change))
+                    }
+                    if (fontName != null) {
+                        TextButton(onClick = onResetFont) {
+                            Text(stringResource(R.string.panel_font_reset))
+                        }
+                    }
+                }
+            },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
         )
-        Text(
-            text = fontName ?: stringResource(R.string.panel_font_system),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 8.dp, end = 4.dp)
-        )
-        TextButton(onClick = onPickFont) { Text(stringResource(R.string.panel_font_change)) }
-        TextButton(onClick = onResetFont, enabled = fontName != null) {
-            Text(stringResource(R.string.panel_font_reset))
-        }
     }
 }
 
