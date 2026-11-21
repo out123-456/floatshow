@@ -3,6 +3,7 @@ package com.qiqi.floatshow.data
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
+import com.caverock.androidsvg.SVG
 
 /**
  * 导入内容的校验与解码. 只负责"能不能用、有多大", 不负责界面.
@@ -13,6 +14,7 @@ object PanelContentPicker {
 
     private val TEXT_EXTENSIONS = setOf("txt", "md", "log")
     private val FONT_EXTENSIONS = setOf("ttf", "otf")
+    private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp", "gif", "bmp", "heic", "heif", "svg")
 
     /** 文本文件的显示名(去掉路径与扩展名), 取不到时返回 null */
     fun textFileName(context: Context, uri: Uri): String? {
@@ -37,13 +39,30 @@ object PanelContentPicker {
         text?.takeIf { it.isNotBlank() }
     }.getOrNull()
 
-    /** 只解码尺寸判断文件是否可用, 不把整张图读进内存 */
+    fun isImageFile(context: Context, uri: Uri): Boolean =
+        extensionOf(context, uri) in IMAGE_EXTENSIONS ||
+            runCatching { context.contentResolver.getType(uri) }.getOrNull()
+                ?.startsWith("image/") == true
+
+    fun isSvg(context: Context, uri: Uri): Boolean =
+        extensionOf(context, uri) == "svg" ||
+            runCatching { context.contentResolver.getType(uri) }.getOrNull() == "image/svg+xml"
+
+    /**
+     * 只判断文件是否可用, 不把整张图读进内存.
+     * SVG 走矢量解析器(SVG.getFromInputStream), 位图走 inJustDecodeBounds 只读尺寸.
+     */
     fun canReadImage(context: Context, uri: Uri): Boolean = runCatching {
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, options)
+        if (context.contentResolver.getType(uri) == "image/svg+xml" || isSvg(context, uri)) {
+            // 解析成功就说明文件可用; 已经有内置的 androidsvg, 不再引入别的库
+            context.contentResolver.openInputStream(uri)?.use { SVG.getFromInputStream(it) } != null
+        } else {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, options)
+            }
+            options.outWidth > 0 && options.outHeight > 0
         }
-        options.outWidth > 0 && options.outHeight > 0
     }.getOrDefault(false)
 
     private fun queryDisplayName(context: Context, uri: Uri): String? = runCatching {
