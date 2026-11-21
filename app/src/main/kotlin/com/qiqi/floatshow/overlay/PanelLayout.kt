@@ -5,14 +5,14 @@ import kotlin.math.roundToInt
 /**
  * 面板几何的纯计算, 单位全部是像素.
  *
- * 位置: 允许单边超出屏幕, 但对边至少留屏幕尺寸的 5%.
+ * 位置: 面板允许几乎整个出屏, 唯一的底线是"最小化/关闭那颗按钮"必须完整留在安全区,
+ *       否则面板就再也点不到、关不掉了. 用户拖到边界时手势不被打断, 只是超出方向不再跟手.
  * 翻转: 顶边进入屏幕顶部 10% 时工具栏翻到底部; 翻回顶部要底边进入屏幕底部 10% 且顶边已离开顶部 10%.
  * 缩放: 只有角能缩放(边只用来整体移动). 被拖的边跟手, 宽/高不足最小尺寸时面板整体跟着手指平移,
  *       手柄交给对面那一侧; 纵向翻转同时把工具栏换到另一边, 避免手柄压在关闭按钮上.
  */
 object PanelLayout {
 
-    const val MIN_VISIBLE_RATIO = 0.05f
     const val FLIP_RATIO = 0.1f
 
     /** 关闭按钮所在的角: 工具栏在上是右上, 在下是右下 */
@@ -40,18 +40,51 @@ object PanelLayout {
         else edges.filter { it != PanelGrip.TOP_EDGE }
     }
 
-    /** 把位置约束进"对边至少留 5%"的范围; 面板比屏幕还大时居中 */
-    fun clamp(geometry: PanelGeometry, screenWidth: Int, screenHeight: Int): PanelGeometry {
-        val visibleX = (screenWidth * MIN_VISIBLE_RATIO).toInt()
-        val visibleY = (screenHeight * MIN_VISIBLE_RATIO).toInt()
-        val loX = visibleX - geometry.width
-        val hiX = screenWidth - visibleX
-        val loY = visibleY - geometry.height
-        val hiY = screenHeight - visibleY
-        val x = if (loX > hiX) (screenWidth - geometry.width) / 2 else geometry.x.coerceIn(loX, hiX)
-        val y = if (loY > hiY) (screenHeight - geometry.height) / 2 else geometry.y.coerceIn(loY, hiY)
+    /**
+     * 面板位置约束. 唯一的硬要求: 最小化/关闭那颗按钮(工具栏右端 controlSize×controlSize)
+     * 完整落在安全区内. 面板其余部分可以整块出屏, 用户拖回来就能关.
+     *
+     * 一维各算一个"可行区间", 超出的那一侧就夹回来; 另一侧不受影响,
+     * 所以手指继续往超出的方向走时面板停住, 反手回来立刻跟上, 焦点不丢.
+     *
+     * @param safe 挖孔四条边, 顺序 左/上/右/下
+     */
+    fun clamp(
+        geometry: PanelGeometry,
+        screenWidth: Int,
+        screenHeight: Int,
+        controlSize: Int,
+        toolbarAtBottom: Boolean,
+        safe: IntArray
+    ): PanelGeometry {
+        val usableLeft = safe[0]
+        val usableTop = safe[1]
+        val usableRight = screenWidth - safe[2]
+        val usableBottom = screenHeight - safe[3]
+
+        // 按钮在 X 方向的可行区间: 按钮左边缘 >= 可用区左, 右边缘 <= 可用区右
+        val loX = usableLeft + controlSize - geometry.width
+        val hiX = usableRight - controlSize
+        // 按钮在 Y 方向: 工具栏在上时按钮占面板顶端, 在下时占底端
+        val loY = if (toolbarAtBottom) {
+            usableTop + controlSize - geometry.height
+        } else {
+            usableTop
+        }
+        val hiY = if (toolbarAtBottom) {
+            usableBottom - controlSize
+        } else {
+            usableBottom - geometry.height
+        }
+
+        val x = axis(geometry.x, loX, hiX)
+        val y = axis(geometry.y, loY, hiY)
         return if (x == geometry.x && y == geometry.y) geometry else geometry.copy(x = x, y = y)
     }
+
+    /** 区间可能因面板比可用区还大而颠倒, 这时取靠前的那一端, 保证方向一致 */
+    private fun axis(value: Int, lo: Int, hi: Int): Int =
+        if (lo <= hi) value.coerceIn(lo, hi) else hi
 
     /** 工具栏是否该翻到底部(入参是约束后的几何) */
     fun nextToolbarAtBottom(current: Boolean, geometry: PanelGeometry, screenHeight: Int): Boolean {

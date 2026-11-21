@@ -33,9 +33,9 @@ import com.qiqi.floatshow.R
  * 全屏查看器. 位图走 [TileImageView](瓦片按需解码, 支持 1:1 与放大),
  * SVG 走 [SvgView](矢量放大), 两者都由触摸完成缩放与拖动; SVG 额外提供倍数按钮.
  */
-@Composable
 private const val MATCH = android.view.ViewGroup.LayoutParams.MATCH_PARENT
 
+@Composable
 fun ZoomableImageDialog(uri: Uri, isSvg: Boolean, onDismiss: () -> Unit) {
     var svgView by remember { mutableStateOf<SvgView?>(null) }
     var zoomPercent by remember { mutableStateOf(1f) }

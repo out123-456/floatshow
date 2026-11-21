@@ -57,6 +57,24 @@ class PanelWindow(
     private val density = service.resources.displayMetrics.density
     private val touchSlop = ViewConfiguration.get(service).scaledTouchSlop
 
+    /** 挖孔四条边, 顺序 左/上/右/下 */
+    private fun safeEdgeArray(): IntArray {
+        val cut = safeInsets()
+        return intArrayOf(cut.left, cut.top, cut.right, cut.bottom)
+    }
+
+    /**
+     * 面板几何的统一约束入口: 只保证最小化/关闭那颗按钮完整在安全区.
+     * 面板其余部分可以整块出屏, 拖回来就能关.
+     */
+    private fun clampPanelGeometry(geometry: PanelGeometry): PanelGeometry {
+        val (screenWidth, screenHeight) = screenSize()
+        return PanelLayout.clamp(
+            geometry, screenWidth, screenHeight,
+            controlSizePx, toolbarAtBottom, safeEdgeArray()
+        )
+    }
+
     /**
      * 球不能进入的非安全区: 只有挖孔那一带.
      * 挖孔不是触摸拦截区, 但球落进去会被窗口裁掉(默认的 cutout 模式不扩展进挖孔),
@@ -154,7 +172,7 @@ class PanelWindow(
         }
         panel = geometry
         val (screenWidth, screenHeight) = screenSize()
-        panel = PanelLayout.clamp(geometry, screenWidth, screenHeight)
+        panel = clampPanelGeometry(geometry)
 
         maxSurfacePx = min(screenWidth, screenHeight)
 
@@ -451,11 +469,10 @@ class PanelWindow(
         val (screenWidth, screenHeight) = screenSize()
         val w = max(panel.width, minSizePx)
         val h = max(panel.height, minSizePx)
-        var geometry = PanelLayout.clamp(PanelGeometry(panel.x, panel.y, w, h), screenWidth, screenHeight)
+        var geometry = clampPanelGeometry(PanelGeometry(panel.x, panel.y, w, h))
         if (!barVisibleAt(geometry)) {
-            geometry = PanelLayout.clamp(
-                PanelGeometry((screenWidth * 0.15f).toInt(), dp(8), w, h),
-                screenWidth, screenHeight
+            geometry = clampPanelGeometry(
+                PanelGeometry((screenWidth * 0.15f).toInt(), dp(8), w, h)
             )
             setBarAtBottom(false, force = true)
         }
@@ -535,7 +552,7 @@ class PanelWindow(
 
         val (screenWidth, screenHeight) = screenSize()
         val moved = panel.copy(x = startPanelX + dx, y = startPanelY + dy)
-        val clamped = PanelLayout.clamp(moved, screenWidth, screenHeight)
+        val clamped = clampPanelGeometry(moved)
 
         // 翻转判断只在这个方向上有意义: 顶边进顶区翻到底部, 底边进底区翻回顶部
         val wantBottom = PanelLayout.nextToolbarAtBottom(toolbarAtBottom, clamped, screenHeight)
@@ -581,7 +598,7 @@ class PanelWindow(
         runCatching { wm.updateViewLayout(view, params) }
 
         // 手指回到能让窗口放下来的位置, 面板回到它自己的位置(不跟球走)
-        val target = PanelLayout.clamp(panel, screenWidth, screenHeight)
+        val target = clampPanelGeometry(panel)
         if (!barVisibleAt(target)) return
 
         removeBallWindow()
@@ -620,13 +637,15 @@ class PanelWindow(
                 val dy = event.rawY - downRawY
                 // 缩放过程中不重新判断工具栏翻转, 也不重新做 5% 约束:
                 // 每帧翻转会让手柄布局整体重排, 这就是"按住靠近工具栏的角更卡"的来源
-                panel = PanelLayout.resize(
-                    grip = resizeGrip,
-                    start = startPanelGeometry,
-                    dx = dx,
-                    dy = dy,
-                    minSize = minSizePx,
-                    maxSize = maxSurfacePx
+                panel = clampPanelGeometry(
+                    PanelLayout.resize(
+                        grip = resizeGrip,
+                        start = startPanelGeometry,
+                        dx = dx,
+                        dy = dy,
+                        minSize = minSizePx,
+                        maxSize = maxSurfacePx
+                    )
                 )
                 scheduleResizeGeometryApply()
             }
@@ -700,7 +719,7 @@ class PanelWindow(
 
     private fun commit() {
         val (screenWidth, screenHeight) = screenSize()
-        val clampedPanel = PanelLayout.clamp(panel, screenWidth, screenHeight)
+        val clampedPanel = clampPanelGeometry(panel)
         val clampedBall = clampBall(ball, screenWidth, screenHeight)
         panel = clampedPanel
         ball = clampedBall
