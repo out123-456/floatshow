@@ -103,6 +103,22 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_PANEL_TOOLBAR_BOTTOM, false)
         set(v) = prefs.edit { putBoolean(KEY_PANEL_TOOLBAR_BOTTOM, v) }
 
+    // ── 面板内容层 ─────────────────────────────────────────
+    /** 第 0 项是背景层, 之后依次是叠加层. 空列表表示面板还没有内容 */
+    var panelLayers: List<PanelLayer>
+        get() = PanelLayer.listFromJson(prefs.getString(KEY_PANEL_LAYERS, null))
+        set(v) = prefs.edit { putString(KEY_PANEL_LAYERS, PanelLayer.listToJson(v)) }
+
+    /** 导入的字体文件(content:// uri)`,未导入时为 null, 用系统默认字体 */
+    var panelFontUri: String?
+        get() = prefs.getString(KEY_PANEL_FONT_URI, null)
+        set(v) = prefs.edit { putString(KEY_PANEL_FONT_URI, v) }
+
+    /** 字体文件的显示名, 只用于设置页展示 */
+    var panelFontName: String?
+        get() = prefs.getString(KEY_PANEL_FONT_NAME, null)
+        set(v) = prefs.edit { putString(KEY_PANEL_FONT_NAME, v) }
+
     /** 一次写入多项, 只触发一次监听回调 */
     fun editing(block: android.content.SharedPreferences.Editor.() -> Unit) {
         prefs.edit().apply(block).apply()
@@ -147,6 +163,9 @@ class SettingsRepository(context: Context) {
         const val KEY_PANEL_HEIGHT = "panel_height_px"
         const val KEY_PANEL_EXPANDED = "panel_expanded"
         const val KEY_PANEL_TOOLBAR_BOTTOM = "panel_toolbar_bottom"
+        const val KEY_PANEL_LAYERS = "panel_layers_json"
+        const val KEY_PANEL_FONT_URI = "panel_font_uri"
+        const val KEY_PANEL_FONT_NAME = "panel_font_name"
         const val DEFAULT_PANEL_WIDTH_DP = 280
         const val DEFAULT_PANEL_HEIGHT_DP = 220
         /** 收缩态圆球直径 */
