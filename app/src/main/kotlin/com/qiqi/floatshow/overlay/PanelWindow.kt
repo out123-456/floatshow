@@ -92,6 +92,9 @@ class PanelWindow(
     private var followingPointer = false
     private var resizeGrip = PanelGrip.RIGHT_BOTTOM
     private var downOnBar = false
+    private var resizeGravityActive = false
+    private var resizeScreenWidth = 1
+    private var resizeScreenHeight = 1
 
     val isShowing: Boolean get() = ballView != null || panelView != null
 
@@ -599,6 +602,7 @@ class PanelWindow(
                 downRawY = event.rawY
                 startPanelGeometry = panel
                 resizeGrip = (view.tag as? PanelGrip) ?: PanelGrip.RIGHT_BOTTOM
+                beginResizeWindowAnchor()
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - downRawX
@@ -615,9 +619,51 @@ class PanelWindow(
                 )
                 applyPanelGeometry()
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> commit()
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                restoreResizeWindowAnchor()
+                commit()
+            }
         }
         true
+    }
+
+    /**
+     * 缩放期间让窗口锚定到不动的对边. 左边手柄用 RIGHT 重力, 顶边手柄用 BOTTOM;
+     * 每帧只改变窗口尺寸, 避免 WindowManager 将固定边的位置与尺寸分别舍入.
+     */
+    private fun beginResizeWindowAnchor() {
+        val params = panelParams ?: return
+        val (screenWidth, screenHeight) = screenSize()
+        resizeScreenWidth = screenWidth
+        resizeScreenHeight = screenHeight
+        val horizontal = if (resizeGrip.affectsLeft) Gravity.RIGHT else Gravity.LEFT
+        val vertical = if (resizeGrip.affectsTop) Gravity.BOTTOM else Gravity.TOP
+        params.gravity = horizontal or vertical
+        params.x = if (resizeGrip.affectsLeft) {
+            screenWidth - (startPanelGeometry.x + startPanelGeometry.width)
+        } else {
+            startPanelGeometry.x
+        }
+        params.y = if (resizeGrip.affectsTop) {
+            screenHeight - (startPanelGeometry.y + startPanelGeometry.height)
+        } else {
+            startPanelGeometry.y
+        }
+        resizeGravityActive = true
+        panelView?.let { runCatching { wm.updateViewLayout(it, params) } }
+    }
+
+    /** 抬手后恢复统一的左上坐标系, 持久化位置仍是屏幕左上角 */
+    private fun restoreResizeWindowAnchor() {
+        val params = panelParams ?: return
+        if (!resizeGravityActive) return
+        resizeGravityActive = false
+        params.gravity = Gravity.TOP or Gravity.START
+        params.x = panel.x
+        params.y = panel.y
+        params.width = panel.width
+        params.height = panel.height
+        panelView?.let { runCatching { wm.updateViewLayout(it, params) } }
     }
 
     // ── 收起 / 提交 ──────────────────────────────────────────
@@ -658,8 +704,21 @@ class PanelWindow(
         ) return
         params.width = panel.width
         params.height = panel.height
-        params.x = panel.x
-        params.y = panel.y
+        if (resizeGravityActive) {
+            params.x = if (resizeGrip.affectsLeft) {
+                resizeScreenWidth - (panel.x + panel.width)
+            } else {
+                panel.x
+            }
+            params.y = if (resizeGrip.affectsTop) {
+                resizeScreenHeight - (panel.y + panel.height)
+            } else {
+                panel.y
+            }
+        } else {
+            params.x = panel.x
+            params.y = panel.y
+        }
         // 只更新窗口尺寸. 手柄用 MATCH_PARENT 自适应, 标题的遮盖由静态边距决定,
         // 每帧重排这些子 View 正是缩放不如参考流畅的原因.
         runCatching { wm.updateViewLayout(view, params) }
