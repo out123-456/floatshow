@@ -184,7 +184,7 @@ class PanelWindow(
         // 角手柄: 缩放, 尺寸就是关闭按钮那一格, 压在边缘手柄之上
         repeat(3) {
             val corner = View(service)
-            val lp = FrameLayout.LayoutParams(controlSizePx, controlSizePx)
+            val lp = FrameLayout.LayoutParams(cornerSizePx, cornerSizePx)
             corner.setOnTouchListener(resizeListener)
             root.addView(corner, lp)
             cornerGrips += corner
@@ -205,6 +205,11 @@ class PanelWindow(
     }
 
     private var edgeThicknessPx = 1
+
+    /** 角手柄的方块边长: 关闭按钮的 1/2, 且完全在面板内侧 */
+    private val cornerSizePx = (controlSizePx / 2).coerceAtLeast(1)
+    /** 角手柄真正响应触摸的"线"粗: 关闭按钮的 1/8 */
+    private val cornerLinePx = (controlSizePx / 8).coerceAtLeast(1)
 
     /** 面板最大边长, 展示时算一次 */
     private var maxSurfacePx = 1
@@ -309,7 +314,7 @@ class PanelWindow(
     private fun updateGripLayout() {
         val root = panelView ?: return
         val t = edgeThicknessPx
-        val c = controlSizePx
+        val c = cornerSizePx
 
         // 边缘: 工具栏所在的那条边不放手柄, 否则会压住最小化/关闭
         val edges = PanelLayout.edgeGrips(toolbarAtBottom)
@@ -572,7 +577,22 @@ class PanelWindow(
         setBarAtBottom(PanelLayout.nextToolbarAtBottom(toolbarAtBottom, target, screenHeight))
     }
 
+    /**
+     * 角手柄只有按在贴着面板外沿的那两条线上才算数, 方块内部其余位置不响应.
+     * DOWN 不在线上时返回 false, 触摸交给更下层的边缘手柄或内容.
+     */
+    private fun onCornerLine(view: View, event: MotionEvent): Boolean {
+        val grip = view.tag as? PanelGrip ?: return false
+        val t = cornerLinePx
+        val nearVertical = if (grip.affectsLeft) event.x < t else event.x >= view.width - t
+        val nearHorizontal = if (grip.affectsTop) event.y < t else event.y >= view.height - t
+        return nearVertical || nearHorizontal
+    }
+
     private val resizeListener = View.OnTouchListener { view, event ->
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && !onCornerLine(view, event)) {
+            return@OnTouchListener false
+        }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downRawX = event.rawX
