@@ -16,7 +16,8 @@ import kotlin.math.min
  * 层内容的预览. 位图与 SVG 都在后台线程加载, 主线程只负责画.
  *
  * 位图一律降采样后再进内存: 8192px 的 PNG 原样解码是 200MB 以上, 必然撑爆进程.
- * 这里按"最大边 2048"取 2 的幂做 inSampleSize, 面板真正渲染时再决定最终像素密度.
+ * 长边超过 [MAX_SIDE] 就取 2 的幂做 inSampleSize. 解出来的这张同时放进 [OverviewCache],
+ * 全屏查看时可以直接借用, 不再解第二遍.
  */
 class LayerPreviewView(context: Context) : View(context) {
 
@@ -107,6 +108,9 @@ class LayerPreviewView(context: Context) : View(context) {
                     return@post
                 }
                 bitmap = loadedBitmap
+                if (loadedBitmap != null && uri != null) {
+                    OverviewCache.put(uri.toString(), loadedBitmap, width.toInt(), height.toInt())
+                }
                 svg = loadedSvg
                 svgWidth = width
                 svgHeight = height
@@ -146,6 +150,6 @@ class LayerPreviewView(context: Context) : View(context) {
 
     companion object {
         /** 进内存前的最大边长, 与面板最终显示尺寸脱钩 */
-        private const val MAX_SIDE = 2048
+        private const val MAX_SIDE = 1024
     }
 }

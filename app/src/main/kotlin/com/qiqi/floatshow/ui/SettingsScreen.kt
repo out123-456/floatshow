@@ -186,8 +186,9 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         pendingRawUri = uri
     }
 
-    /** 当场转换; 成功后对话框自己收起, 因此 pendingRawUri 在结束时由这里清掉 */
+    /** 当场转换. pendingRawUri 既是对话框的宿主, 也是转换的目标 */
     fun convertRaw(uri: Uri) {
+        pendingRawUri = uri
         rawProgress = 0
         scope.launch {
             val ok = withContext(Dispatchers.IO) {

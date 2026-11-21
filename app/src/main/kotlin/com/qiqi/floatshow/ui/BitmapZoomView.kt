@@ -45,6 +45,8 @@ class BitmapZoomView(context: Context) : View(context) {
     private var token = 0
 
     private var overview: Bitmap? = null
+    /** overview 是不是自己解出来的; 借来的那张不能 recycle */
+    private var overviewOwned = false
     private var full: Bitmap? = null
     private var reader: RawReader? = null
 
@@ -114,9 +116,6 @@ class BitmapZoomView(context: Context) : View(context) {
         imageHeight = 0
         invalidate()
 
-        val targetW = if (width > 0) width else resources.displayMetrics.widthPixels
-        val targetH = if (height > 0) height else resources.displayMetrics.heightPixels
-
         executor.execute {
             // 1. 读文件头拿尺寸, 立刻能把图摆正
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -161,12 +160,15 @@ class BitmapZoomView(context: Context) : View(context) {
 
             // 3. 降采样整图. 这一步任何来源都要做: 缩到全图时只画它.
             //    (raw 也一样 —— raw 只有按视口读小块的能力, 没有整图缩略)
-            val small = decodeSampled(uri, w, h, targetW, targetH)
+            //    抽屉预览已经解过同规格的一张就直接借用, 省掉一次全图 inflate
+            val cached = OverviewCache.peek(uri.toString())
+            val small = cached?.first ?: decodeSampled(uri, w, h)
             post {
                 if (current != token) {
-                    small?.recycle()
+                    if (cached == null) small?.recycle()
                     return@post
                 }
+                overviewOwned = cached == null
                 overview = small
                 invalidate()
             }
@@ -192,10 +194,11 @@ class BitmapZoomView(context: Context) : View(context) {
         load(current)
     }
 
-    private fun decodeSampled(uri: Uri, w: Int, h: Int, targetW: Int, targetH: Int): Bitmap? =
+    private fun decodeSampled(uri: Uri, w: Int, h: Int): Bitmap? =
         runCatching {
+            // 与抽屉预览同规格: 长边 1024. 全图缩放在这个清晰度下够用
             var sample = 1
-            while (w / (sample * 2) >= targetW && h / (sample * 2) >= targetH) sample *= 2
+            while (max(w, h) / (sample * 2) >= OVERVIEW_SIDE) sample *= 2
             val options = BitmapFactory.Options().apply { inSampleSize = sample }
             context.contentResolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, options)
@@ -384,8 +387,9 @@ class BitmapZoomView(context: Context) : View(context) {
     }
 
     private fun releaseData() {
-        overview?.recycle()
+        if (overviewOwned) overview?.recycle()
         overview = null
+        overviewOwned = false
         full?.recycle()
         full = null
         reader?.close()
@@ -409,8 +413,11 @@ class BitmapZoomView(context: Context) : View(context) {
         /** 超过这么多像素就不再整图进内存(约 64MB) */
         private const val FULL_PIXEL_LIMIT = 4096 * 4096
 
-        /** 视口覆盖超过这么多像素时改用降采样整图 */
-        private const val WINDOW_PIXEL_LIMIT = 2048L * 2048L
+        /** 视口覆盖超过这么多像素(即缩得很小)时才用降采样整图, 约 32MB 一帧 */
+        private const val WINDOW_PIXEL_LIMIT = 8L * 1024L * 1024L
+
+        /** 降采样整图的长边, 与抽屉预览一致 */
+        private const val OVERVIEW_SIDE = 1024
 
         /** 窗口比视口每边多出的像素, 拖动在这个范围内不重填 */
         private const val PAD = 128

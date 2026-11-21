@@ -100,7 +100,8 @@ object RawImage {
 
                 val rows = min(BAND, source.height)
                 val pixels = IntArray(source.width * rows)
-                val bytes = ByteBuffer.allocate(source.width * rows * 4)
+                // 读写字节序必须一致, 否则每个像素的 A/R/G/B 会被倒过来
+                val bytes = ByteBuffer.allocate(source.width * rows * 4).order(ByteOrder.LITTLE_ENDIAN)
                 var y = 0
                 while (y < source.height) {
                     val count = min(BAND, source.height - y)
