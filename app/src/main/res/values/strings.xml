@@ -34,6 +34,30 @@
 
     <string name="section_panel">悬浮面板</string>
     <string name="section_panel_desc">可拖动的内容面板，拖标题栏移动，右上角关闭</string>
+    <string name="panel_import_background">导入背景层</string>
+    <string name="panel_import_overlay">导入叠加层</string>
+    <string name="panel_import_kind_title">导入哪一类内容</string>
+    <string name="panel_import_image">图片</string>
+    <string name="panel_import_text">文本文件</string>
+    <string name="panel_layer_open">展开这一层</string>
+    <string name="panel_layer_move_up">上移</string>
+    <string name="panel_layer_move_down">下移</string>
+    <string name="panel_layer_pin_top">置顶</string>
+    <string name="panel_layer_pin_bottom">置底</string>
+    <string name="panel_layer_fixed">固定</string>
+    <string name="panel_layer_delete">删除</string>
+    <string name="panel_layer_replace">替换内容</string>
+    <string name="panel_rename_title">重命名</string>
+    <string name="panel_rename_duplicate">这个名字已被占用</string>
+    <string name="panel_text_empty">文件是空的, 已放弃导入</string>
+    <string name="panel_text_bad_type">只支持 .txt / .md / .log 文本文件</string>
+    <string name="panel_image_bad">这张图片读不出来, 已放弃导入</string>
+    <string name="panel_font">字体</string>
+    <string name="panel_font_system">系统字体</string>
+    <string name="panel_font_change">更换字体</string>
+    <string name="panel_font_reset">恢复默认</string>
+    <string name="panel_font_bad_type">只支持 .ttf / .otf 字体文件</string>
+    <string name="panel_font_failed">字体加载失败, 已回退系统字体</string>
 
     <string name="tile_label">准星开关</string>
 
