@@ -154,4 +154,5 @@
     <string name="lab_snackbar_text">提示条示例 / Snackbar sample</string>
     <string name="lab_drawer_text">抽屉内容 / Drawer content</string>
     <string name="lab_sheet_text">底部抽屉内容 / Sheet content</string>
+    <string name="panel_zoom_title">查看</string>
 </resources>
