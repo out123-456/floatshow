@@ -11,8 +11,8 @@ android {
         applicationId = "com.qiqi.floatshow"
         minSdk = 26
         targetSdk = 34
-        versionCode = 65
-        versionName = "1.65"
+        versionCode = 66
+        versionName = "1.66"
     }
 
     buildTypes {
