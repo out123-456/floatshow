@@ -21,6 +21,23 @@ import com.qiqi.floatshow.ui.theme.FloatshowTheme
  */
 class MainActivity : ComponentActivity() {
 
+    /**
+     * 全屏隐藏状态栏. 用 BEHAVIOR_DEFAULT 而不是"下滑临时显示":
+     * 后者会让状态栏在摸到屏幕顶部时闪回来, 与"全程全屏"的意图冲突.
+     */
+    private fun hideStatusBar() {
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.statusBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+        }
+    }
+
+    /** 系统在某些时刻会自己把状态栏放回来, 重新获得焦点时补一次 */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideStatusBar()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -30,11 +47,7 @@ class MainActivity : ComponentActivity() {
             window.attributes.layoutInDisplayCutoutMode =
                 android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         }
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.statusBars())
-            systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
+        hideStatusBar()
         setContent {
             FloatshowTheme {
                 var showLab by remember { mutableStateOf(false) }
