@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.view.WindowInsets
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.MotionEvent
@@ -55,6 +56,17 @@ class PanelWindow(
     private val wm = service.getSystemService(Service.WINDOW_SERVICE) as WindowManager
     private val density = service.resources.displayMetrics.density
     private val touchSlop = ViewConfiguration.get(service).scaledTouchSlop
+
+    /**
+     * 球不能进入的非安全区: 只有挖孔那一带.
+     * 挖孔不是触摸拦截区, 但球落进去会被窗口裁掉(默认的 cutout 模式不扩展进挖孔),
+     * 结果就是点不到、拖不出来, 也就关不掉. 状态栏仍然视为不存在.
+     */
+    private fun safeInsets(): android.graphics.Insets {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return android.graphics.Insets.NONE
+        return wm.currentWindowMetrics.windowInsets
+            .getInsets(WindowInsets.Type.displayCutout())
+    }
 
     /** 面板几何(px). 收起成球时仍然保留, 再次展开就按它还原 */
     private var panel = initialPanel
@@ -753,12 +765,17 @@ class PanelWindow(
     }
 
     /**
-     * 球的可用范围就是整块屏幕: 状态栏在不在都不影响.
-     * 之前的实现给状态栏留了一条禁止进入的带子, 于是下拉状态栏时球会被系统挤下去.
+     * 球的可用范围 = 整屏减去挖孔区. 状态栏不算, 挖孔必须避让.
+     * 横屏时挖孔在左或右, 靠 [safeInsets] 算出来的四条边自然就覆盖了这个情况.
      */
     private fun clampBall(geometry: PanelGeometry, screenWidth: Int, screenHeight: Int): PanelGeometry {
-        val x = geometry.x.coerceIn(0, max(0, screenWidth - geometry.width))
-        val y = geometry.y.coerceIn(0, max(0, screenHeight - geometry.height))
+        val cut = safeInsets()
+        val leftLimit = cut.left
+        val topLimit = cut.top
+        val rightLimit = max(leftLimit, screenWidth - cut.right - geometry.width)
+        val bottomLimit = max(topLimit, screenHeight - cut.bottom - geometry.height)
+        val x = geometry.x.coerceIn(leftLimit, rightLimit)
+        val y = geometry.y.coerceIn(topLimit, bottomLimit)
         return geometry.copy(x = x, y = y)
     }
 
