@@ -155,9 +155,9 @@ class OverlayService : Service() {
         view.scaleY = view.boxHeight / pxH
 
         val (screenWidth, screenHeight) = screenSize()
-        val centerY = centeredY(screenHeight)
-        val left = screenWidth / 2 + settings.crosshairOffsetX - pxW / 2
-        val top = centerY + settings.crosshairOffsetY - pxH / 2
+        val center = crosshairCenter(screenWidth, screenHeight)
+        val left = center.first - pxW / 2
+        val top = center.second - pxH / 2
 
         val params = crosshairParams
         if (params == null) {
@@ -290,15 +290,41 @@ class OverlayService : Service() {
             metrics.widthPixels to metrics.heightPixels
         }
 
-    /** 刘海模式: 用整块屏幕的中心; 否则扣掉状态栏后居中 */
-    private fun centeredY(screenHeight: Int): Int {
-        if (settings.crosshairNotchMode || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            return screenHeight / 2
+    /**
+     * 准星中心.
+     * 忽视刘海打开 = 相对整屏居中; 关闭 = 相对"系统栏与挖孔以外"的可用区居中(导航栏不算可用区损失).
+     * 避让轴随屏幕朝向走: 竖屏避让上下, 横屏避让左右; 两个偏移量随之换轴.
+     */
+    private fun crosshairCenter(screenWidth: Int, screenHeight: Int): Pair<Int, Int> {
+        val landscape = screenWidth > screenHeight
+        val insets = usableInsets()
+        val baseX: Int
+        val baseY: Int
+        if (landscape) {
+            baseX = if (settings.crosshairNotchMode) {
+                screenWidth / 2
+            } else {
+                insets.left + (screenWidth - insets.left - insets.right) / 2
+            }
+            baseY = screenHeight / 2
+        } else {
+            baseX = screenWidth / 2
+            baseY = if (settings.crosshairNotchMode) {
+                screenHeight / 2
+            } else {
+                insets.top + (screenHeight - insets.top) / 2
+            }
         }
-        val statusBar =
-            windowManager.currentWindowMetrics.windowInsets
-                .getInsets(WindowInsets.Type.statusBars()).top
-        return (screenHeight - statusBar) / 2
+        val offsetX = if (landscape) settings.crosshairOffsetY else settings.crosshairOffsetX
+        val offsetY = if (landscape) settings.crosshairOffsetX else settings.crosshairOffsetY
+        return (baseX + offsetX) to (baseY + offsetY)
+    }
+
+    /** 系统栏(状态栏)与挖孔的占用; 导航栏故意不算 */
+    private fun usableInsets(): android.graphics.Insets {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return android.graphics.Insets.NONE
+        return windowManager.currentWindowMetrics.windowInsets
+            .getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout())
     }
 
     private fun overlayWindowType(): Int =
