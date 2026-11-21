@@ -280,15 +280,27 @@ class OverlayService : Service() {
 
     // ── 屏幕计算 ────────────────────────────────────────────
 
-    private fun screenSize(): Pair<Int, Int> =
+    /**
+     * 整屏尺寸(物理像素). 用 display 的 real size 而不是 displayMetrics:
+     * 后者会随状态栏显隐变化, 导致准星在唤出状态栏后突然位移.
+     */
+    private fun screenSize(): Pair<Int, Int> {
+        val display = getSystemService(android.hardware.display.DisplayManager::class.java)
+            ?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
+        if (display != null) {
+            val point = android.graphics.Point()
+            @Suppress("DEPRECATION")
+            display.getRealSize(point)
+            if (point.x > 0 && point.y > 0) return point.x to point.y
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val bounds = windowManager.currentWindowMetrics.bounds
-            bounds.width() to bounds.height()
-        } else {
-            @Suppress("DEPRECATION")
-            val metrics = resources.displayMetrics
-            metrics.widthPixels to metrics.heightPixels
+            return bounds.width() to bounds.height()
         }
+        @Suppress("DEPRECATION")
+        val metrics = resources.displayMetrics
+        return metrics.widthPixels to metrics.heightPixels
+    }
 
     /**
      * 准星中心.
@@ -320,11 +332,14 @@ class OverlayService : Service() {
         return (baseX + offsetX) to (baseY + offsetY)
     }
 
-    /** 系统栏(状态栏)与挖孔的占用; 导航栏故意不算 */
+    /**
+     * 可用区里要避让的部分: 只算挖孔, 状态栏一律当作不存在(导航栏本来也不算).
+     * 状态栏能随时唤出又消失, 让它参与计算会让准星跳来跳去.
+     */
     private fun usableInsets(): android.graphics.Insets {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return android.graphics.Insets.NONE
         return windowManager.currentWindowMetrics.windowInsets
-            .getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout())
+            .getInsets(WindowInsets.Type.displayCutout())
     }
 
     private fun overlayWindowType(): Int =

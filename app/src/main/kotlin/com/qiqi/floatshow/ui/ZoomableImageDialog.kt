@@ -1,6 +1,8 @@
 package com.qiqi.floatshow.ui
 
 import android.net.Uri
+import android.os.Build
+import android.view.WindowManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -20,8 +22,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.DialogProperties
 import com.qiqi.floatshow.R
 
@@ -30,10 +34,28 @@ import com.qiqi.floatshow.R
  * SVG 走 [SvgView](矢量放大), 两者都由触摸完成缩放与拖动; SVG 额外提供倍数按钮.
  */
 @Composable
+private const val MATCH = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+
 fun ZoomableImageDialog(uri: Uri, isSvg: Boolean, onDismiss: () -> Unit) {
     var svgView by remember { mutableStateOf<SvgView?>(null) }
     var zoomPercent by remember { mutableStateOf(1f) }
     var info by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+
+    // 对话框窗口也按"状态栏不存在"处理: 否则唤出状态栏时整页会被挤下去
+    val hostView = LocalView.current
+    DisposableEffect(Unit) {
+        val window = (hostView.parent as? DialogWindowProvider)?.window
+        if (window != null) {
+            window.setLayout(MATCH, MATCH)
+            window.decorView.fitsSystemWindows = false
+            window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.attributes.layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
+        onDispose { }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,

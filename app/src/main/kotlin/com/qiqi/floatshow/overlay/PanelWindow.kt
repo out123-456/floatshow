@@ -55,7 +55,6 @@ class PanelWindow(
     private val wm = service.getSystemService(Service.WINDOW_SERVICE) as WindowManager
     private val density = service.resources.displayMetrics.density
     private val touchSlop = ViewConfiguration.get(service).scaledTouchSlop
-    private val statusBarInset = statusBarHeight()
 
     /** 面板几何(px). 收起成球时仍然保留, 再次展开就按它还原 */
     private var panel = initialPanel
@@ -440,12 +439,10 @@ class PanelWindow(
         val (screenWidth, screenHeight) = screenSize()
         val w = max(panel.width, minSizePx)
         val h = max(panel.height, minSizePx)
-        // 避让状态栏: 工具栏不能停在状态栏下面
-        val y = max(panel.y, statusBarInset)
-        var geometry = PanelLayout.clamp(PanelGeometry(panel.x, y, w, h), screenWidth, screenHeight)
+        var geometry = PanelLayout.clamp(PanelGeometry(panel.x, panel.y, w, h), screenWidth, screenHeight)
         if (!barVisibleAt(geometry)) {
             geometry = PanelLayout.clamp(
-                PanelGeometry((screenWidth * 0.15f).toInt(), statusBarInset + dp(8), w, h),
+                PanelGeometry((screenWidth * 0.15f).toInt(), dp(8), w, h),
                 screenWidth, screenHeight
             )
             setBarAtBottom(false, force = true)
@@ -732,23 +729,36 @@ class PanelWindow(
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-    private fun screenSize(): Pair<Int, Int> =
+    /**
+     * 整屏尺寸(物理像素), 与状态栏/导航栏是否显示无关.
+     * getRealSize 给的是 display 的完整尺寸, 所以下拉状态栏不会让这个值变.
+     */
+    private fun screenSize(): Pair<Int, Int> {
+        val display = service.getSystemService(android.hardware.display.DisplayManager::class.java)
+            ?.getDisplay(android.view.Display.DEFAULT_DISPLAY) ?: return fallbackSize()
+        val point = android.graphics.Point()
+        @Suppress("DEPRECATION")
+        display.getRealSize(point)
+        return if (point.x > 0 && point.y > 0) point.x to point.y else fallbackSize()
+    }
+
+    private fun fallbackSize(): Pair<Int, Int> {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val bounds = wm.currentWindowMetrics.bounds
-            bounds.width() to bounds.height()
-        } else {
-            @Suppress("DEPRECATION")
-            val metrics = service.resources.displayMetrics
-            metrics.widthPixels to metrics.heightPixels
+            return bounds.width() to bounds.height()
         }
+        @Suppress("DEPRECATION")
+        val metrics = service.resources.displayMetrics
+        return metrics.widthPixels to metrics.heightPixels
+    }
 
     /**
-     * 球的可用范围: 横向贴屏幕两边, 纵向不能钻进状态栏.
-     * 浮在状态栏底下时触摸会被状态栏先吃掉, 球就再也拖不动了.
+     * 球的可用范围就是整块屏幕: 状态栏在不在都不影响.
+     * 之前的实现给状态栏留了一条禁止进入的带子, 于是下拉状态栏时球会被系统挤下去.
      */
     private fun clampBall(geometry: PanelGeometry, screenWidth: Int, screenHeight: Int): PanelGeometry {
         val x = geometry.x.coerceIn(0, max(0, screenWidth - geometry.width))
-        val y = geometry.y.coerceIn(statusBarInset, max(statusBarInset, screenHeight - geometry.height))
+        val y = geometry.y.coerceIn(0, max(0, screenHeight - geometry.height))
         return geometry.copy(x = x, y = y)
     }
 
@@ -757,13 +767,9 @@ class PanelWindow(
     private fun barVisibleAt(geometry: PanelGeometry): Boolean {
         val barTop = if (toolbarAtBottom) geometry.y + geometry.height - controlSizePx else geometry.y
         val barBottom = barTop + controlSizePx
-        return barBottom > 0 && barTop < service.resources.displayMetrics.heightPixels
-    }
-
-    private fun statusBarHeight(): Int {
-        val id = service.resources.getIdentifier("status_bar_height", "dimen", "android")
-        val px = if (id > 0) service.resources.getDimensionPixelSize(id) else 0
-        return if (px > 0) px else dp(24)
+        // 用整屏高度判断, 不用 displayMetrics.heightPixels: 后者会随状态栏显隐变化
+        val screenHeight = screenSize().second
+        return barBottom > 0 && barTop < screenHeight
     }
 
     private fun panelColor(): Int {
