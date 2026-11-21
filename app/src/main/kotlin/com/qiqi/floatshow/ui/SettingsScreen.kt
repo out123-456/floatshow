@@ -77,11 +77,15 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
     var notificationsAllowed by remember { mutableStateOf(notificationsEnabled(context)) }
     var serviceRunning by remember { mutableStateOf(settings.serviceRunning) }
 
-    // 服务自己会写 serviceRunning, 这里跟着刷新按钮颜色
+    // 服务会写 serviceRunning, 面板也会自己写 panelEnabled(在面板上关掉时),
+    // 这里跟着刷新, 否则主界面开关会一直停在旧状态
     DisposableEffect(settings) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == SettingsRepository.KEY_SERVICE_RUNNING) {
                 serviceRunning = settings.serviceRunning
+            }
+            if (key == SettingsRepository.KEY_PANEL_ENABLED) {
+                panelEnabled = settings.panelEnabled
             }
         }
         settings.prefs.registerOnSharedPreferenceChangeListener(listener)

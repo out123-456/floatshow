@@ -14,7 +14,6 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.TextView
 import com.qiqi.floatshow.R
 import kotlin.math.abs
@@ -327,8 +326,6 @@ class PanelWindow(
     /** 手柄位置: 边缘贴着不含工具栏的三条边, 角压在关闭按钮对面 */
     private fun updateGripLayout() {
         val root = panelView ?: return
-        val w = panel.width
-        val h = panel.height
         val t = edgeThicknessPx
         val c = controlSizePx
 
@@ -338,20 +335,21 @@ class PanelWindow(
             val grip = edges.getOrNull(index) ?: return@forEachIndexed
             val lp = edgeParams[index]
             when (grip) {
+                // 一边定死厚度, 另一边 MATCH_PARENT: 窗口尺寸变化时手柄自动跟着长, 不用每帧重排
                 PanelGrip.LEFT_EDGE -> {
-                    lp.width = t; lp.height = h
+                    lp.width = t; lp.height = ViewGroup.LayoutParams.MATCH_PARENT
                     lp.gravity = Gravity.START or Gravity.CENTER_VERTICAL
                 }
                 PanelGrip.RIGHT_EDGE -> {
-                    lp.width = t; lp.height = h
+                    lp.width = t; lp.height = ViewGroup.LayoutParams.MATCH_PARENT
                     lp.gravity = Gravity.END or Gravity.CENTER_VERTICAL
                 }
                 PanelGrip.TOP_EDGE -> {
-                    lp.width = w; lp.height = t
+                    lp.width = ViewGroup.LayoutParams.MATCH_PARENT; lp.height = t
                     lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
                 }
                 PanelGrip.BOTTOM_EDGE -> {
-                    lp.width = w; lp.height = t
+                    lp.width = ViewGroup.LayoutParams.MATCH_PARENT; lp.height = t
                     lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
                 }
                 else -> {
@@ -463,50 +461,21 @@ class PanelWindow(
     }
 
     /** 以球心为锚点展开: 球在九宫格哪一格, 窗口就用同一格对应的角去对齐 */
+    /**
+     * 展开. 面板用它自己保存的位置与尺寸, 不再跟着球的位置走:
+     * 球和面板各管各的位置, 展开只是把面板窗口开出来.
+     */
     private fun expandFromBall() {
-        val centerX = ball.x + ballSizePx / 2
-        val centerY = ball.y + ballSizePx / 2
         val (screenWidth, screenHeight) = screenSize()
-        var w = panel.width
-        var h = panel.height
-        if (w < minSizePx) w = minSizePx
-        if (h < minSizePx) h = minSizePx
-
-        val col = when {
-            centerX < screenWidth / 3 -> 0
-            centerX < screenWidth * 2 / 3 -> 1
-            else -> 2
-        }
-        val row = when {
-            centerY < screenHeight / 3 -> 0
-            centerY < screenHeight * 2 / 3 -> 1
-            else -> 2
-        }
-        var x = when (col) {
-            0 -> centerX - ballSizePx / 2
-            1 -> centerX - w / 2
-            else -> centerX + ballSizePx / 2 - w
-        }
-        var y = when (row) {
-            0 -> centerY - ballSizePx / 2
-            1 -> centerY - h / 2
-            else -> centerY + ballSizePx / 2 - h
-        }
-
-        // 避让状态栏: 展开后工具栏若落在状态栏下面, 把窗口整体往下推到状态栏下沿
-        y = max(y, statusBarInset)
-
-        var geometry = PanelLayout.clamp(
-            PanelGeometry(x, y, w, h), screenWidth, screenHeight
-        )
+        val w = max(panel.width, minSizePx)
+        val h = max(panel.height, minSizePx)
+        // 避让状态栏: 工具栏不能停在状态栏下面
+        val y = max(panel.y, statusBarInset)
+        var geometry = PanelLayout.clamp(PanelGeometry(panel.x, y, w, h), screenWidth, screenHeight)
         if (!barVisibleAt(geometry)) {
-            // 锚点位置放不下时退回默认位置, 保证工具栏一定可见
             geometry = PanelLayout.clamp(
-                PanelGeometry(
-                    (screenWidth * 0.15f).toInt(),
-                    statusBarInset + dp(8),
-                    w, h
-                ), screenWidth, screenHeight
+                PanelGeometry((screenWidth * 0.15f).toInt(), statusBarInset + dp(8), w, h),
+                screenWidth, screenHeight
             )
             setBarAtBottom(false, force = true)
         }
@@ -631,13 +600,8 @@ class PanelWindow(
         params.y = ball.y
         runCatching { wm.updateViewLayout(view, params) }
 
-        // 手指回到能让窗口放下来的位置, 自主展开
-        val centerX = ball.x + ballSizePx / 2
-        val centerY = ball.y + ballSizePx / 2
-        val target = PanelLayout.clamp(
-            anchorPanel(centerX, centerY, panel.width, panel.height, screenWidth, screenHeight),
-            screenWidth, screenHeight
-        )
+        // 手指回到能让窗口放下来的位置, 面板回到它自己的位置(不跟球走)
+        val target = PanelLayout.clamp(panel, screenWidth, screenHeight)
         if (!barVisibleAt(target)) return
 
         removeBallWindow()
@@ -716,9 +680,9 @@ class PanelWindow(
         params.height = panel.height
         params.x = panel.x
         params.y = panel.y
+        // 只更新窗口尺寸. 手柄用 MATCH_PARENT 自适应, 标题的遮盖由静态边距决定,
+        // 每帧重排这些子 View 正是缩放不如参考流畅的原因.
         runCatching { wm.updateViewLayout(view, params) }
-        updateBarOverflow(panel.width)
-        updateGripLayout()
     }
 
     private fun commit() {
@@ -785,37 +749,6 @@ class PanelWindow(
     }
 
     /** 以球心为锚点算面板位置: 球在哪一格, 面板就用那一格对应的角去对齐 */
-    private fun anchorPanel(
-        centerX: Int,
-        centerY: Int,
-        w: Int,
-        h: Int,
-        screenWidth: Int,
-        screenHeight: Int
-    ): PanelGeometry {
-        val col = when {
-            centerX < screenWidth / 3 -> 0
-            centerX < screenWidth * 2 / 3 -> 1
-            else -> 2
-        }
-        val row = when {
-            centerY < screenHeight / 3 -> 0
-            centerY < screenHeight * 2 / 3 -> 1
-            else -> 2
-        }
-        val x = when (col) {
-            0 -> centerX - ballSizePx / 2
-            1 -> centerX - w / 2
-            else -> centerX + ballSizePx / 2 - w
-        }
-        val y = when (row) {
-            0 -> centerY - ballSizePx / 2
-            1 -> centerY - h / 2
-            else -> centerY + ballSizePx / 2 - h
-        }
-        return PanelGeometry(x, y, w, h)
-    }
-
     /** 工具栏(在顶部或底部)是否还能看见一点 */
     private fun barVisibleAt(geometry: PanelGeometry): Boolean {
         val barTop = if (toolbarAtBottom) geometry.y + geometry.height - controlSizePx else geometry.y

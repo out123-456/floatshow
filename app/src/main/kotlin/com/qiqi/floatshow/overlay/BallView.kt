@@ -9,15 +9,11 @@ import android.graphics.drawable.Drawable
 import android.view.View
 
 /**
- * 收缩态悬浮球: 应用图标铺满整颗球, 并按球的圆形裁剪,
- * 图标的圆与球的外圆重合, 不再留白边.
+ * 收缩态悬浮球: 应用图标铺满整颗球, 并按球的圆形裁剪.
+ * 底下不垫白底, 图标带透明度的地方直接透出背景.
  */
 class BallView(context: Context) : View(context) {
 
-    private val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        style = Paint.Style.FILL
-    }
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(30, 0, 0, 0)
         style = Paint.Style.STROKE
@@ -35,9 +31,6 @@ class BallView(context: Context) : View(context) {
         val radius = minOf(w, h) / 2f
         val cx = w / 2f
         val cy = h / 2f
-
-        // 图标可能有透明区域, 底下先垫一层白
-        canvas.drawCircle(cx, cy, radius, whitePaint)
 
         val iconDrawable = icon ?: return
         // 图标按整块正方形绘制, 再裁成圆: 图标的最大内接圆就是球的外圆
