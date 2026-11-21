@@ -99,6 +99,9 @@ class PanelWindow(
     private var resizeExpectedTop = 0
     private var resizeExpectedRight = 0
     private var resizeExpectedBottom = 0
+    private var resizeWindowOffsetX = 0
+    private var resizeWindowOffsetY = 0
+    private var resizeWindowAnchorActive = false
     private var resizeApplyPending = false
     private val resizeFrameCallback = Choreographer.FrameCallback {
         resizeApplyPending = false
@@ -646,6 +649,10 @@ class PanelWindow(
         resizeExpectedTop = initialLocation[1]
         resizeExpectedRight = initialLocation[0] + view.width
         resizeExpectedBottom = initialLocation[1] + view.height
+        val params = panelParams ?: return
+        resizeWindowOffsetX = initialLocation[0] - params.x
+        resizeWindowOffsetY = initialLocation[1] - params.y
+        resizeWindowAnchorActive = true
         val listener = View.OnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
             val location = IntArray(2)
             v.getLocationOnScreen(location)
@@ -663,11 +670,20 @@ class PanelWindow(
                 else -> false
             }
             if (fixedEdgeMoved) {
+                val fixedX = if (resizeGrip.affectsLeft) {
+                    "right=${actualRight - resizeExpectedRight}"
+                } else {
+                    "left=${actualLeft - resizeExpectedLeft}"
+                }
+                val fixedY = if (resizeGrip.affectsTop) {
+                    "bottom=${actualBottom - resizeExpectedBottom}"
+                } else {
+                    "top=${actualTop - resizeExpectedTop}"
+                }
                 Log.w(
                     "FloatShowResize",
                     "grip=$resizeGrip model=$panel actual=$actualLeft,$actualTop,${v.width},${v.height} " +
-                        "fixedExpected=$resizeExpectedLeft,$resizeExpectedTop,$resizeExpectedRight,$resizeExpectedBottom " +
-                        "fixedActual=$actualLeft,$actualTop,$actualRight,$actualBottom"
+                        "fixedDelta=$fixedX,$fixedY windowOffset=$resizeWindowOffsetX,$resizeWindowOffsetY"
                 )
             }
         }
@@ -679,6 +695,7 @@ class PanelWindow(
         val listener = resizeLayoutListener ?: return
         panelView?.removeOnLayoutChangeListener(listener)
         resizeLayoutListener = null
+        resizeWindowAnchorActive = false
     }
 
     /** 每个屏幕刷新帧最多更新一次悬浮窗, 保留该帧前最新的触摸几何. */
@@ -734,8 +751,21 @@ class PanelWindow(
         ) return
         params.width = panel.width
         params.height = panel.height
-        params.x = panel.x
-        params.y = panel.y
+        if (resizeWindowAnchorActive) {
+            params.x = when {
+                resizeGrip.affectsLeft -> resizeExpectedRight - panel.width - resizeWindowOffsetX
+                resizeGrip.affectsRight -> resizeExpectedLeft - resizeWindowOffsetX
+                else -> panel.x
+            }
+            params.y = when {
+                resizeGrip.affectsTop -> resizeExpectedBottom - panel.height - resizeWindowOffsetY
+                resizeGrip.affectsBottom -> resizeExpectedTop - resizeWindowOffsetY
+                else -> panel.y
+            }
+        } else {
+            params.x = panel.x
+            params.y = panel.y
+        }
         // 只更新窗口尺寸. 手柄用 MATCH_PARENT 自适应, 标题的遮盖由静态边距决定,
         // 每帧重排这些子 View 正是缩放不如参考流畅的原因.
         runCatching { wm.updateViewLayout(view, params) }
