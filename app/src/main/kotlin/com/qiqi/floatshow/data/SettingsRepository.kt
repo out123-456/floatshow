@@ -104,7 +104,7 @@ class SettingsRepository(context: Context) {
         set(v) = prefs.edit { putBoolean(KEY_PANEL_TOOLBAR_BOTTOM, v) }
 
     // ── 面板内容层 ─────────────────────────────────────────
-    /** 第 0 项是背景层, 之后依次是叠加层. 空列表表示面板还没有内容 */
+    /** 列表顺序即层级: 第 0 项最底(背景层), 越往后越靠上. 空列表表示面板还没有内容 */
     var panelLayers: List<PanelLayer>
         get() = PanelLayer.listFromJson(prefs.getString(KEY_PANEL_LAYERS, null))
         set(v) = prefs.edit { putString(KEY_PANEL_LAYERS, PanelLayer.listToJson(v)) }
