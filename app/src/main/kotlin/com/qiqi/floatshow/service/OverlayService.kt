@@ -29,6 +29,7 @@ import com.qiqi.floatshow.data.SettingsRepository
 import com.qiqi.floatshow.overlay.CrosshairView
 import com.qiqi.floatshow.overlay.PanelGeometry
 import com.qiqi.floatshow.overlay.PanelLayout
+import kotlin.math.max
 import kotlin.math.min
 import com.qiqi.floatshow.overlay.PanelWindow
 
@@ -312,7 +313,20 @@ class OverlayService : Service() {
      * 整屏尺寸(物理像素). 用 display 的 real size 而不是 displayMetrics:
      * 后者会随状态栏显隐变化, 导致准星在唤出状态栏后突然位移.
      */
+    /**
+     * 屏幕尺寸. 必须与状态栏是否显示无关, 否则准星会随状态栏出现而漂移.
+     *
+     * getRealSize() 给的是"当前 display area", 实测同一台机器会从 2000 跳到 2160,
+     * 所以它只能当最后的兜底. 优先 maximumWindowMetrics: 它是窗口能达到的最大范围,
+     * 只随旋转与显示设置变化, 不看状态栏脸色.
+     */
     private fun screenSize(): Pair<Int, Int> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = runCatching { windowManager.maximumWindowMetrics.bounds }.getOrNull()
+            if (bounds != null && bounds.width() > 0 && bounds.height() > 0) {
+                return bounds.width() to bounds.height()
+            }
+        }
         val display = getSystemService(android.hardware.display.DisplayManager::class.java)
             ?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
         if (display != null) {
@@ -320,54 +334,34 @@ class OverlayService : Service() {
             @Suppress("DEPRECATION")
             display.getRealSize(point)
             if (point.x > 0 && point.y > 0) return point.x to point.y
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val bounds = windowManager.currentWindowMetrics.bounds
-            return bounds.width() to bounds.height()
+            val mode = runCatching { display.mode }.getOrNull()
+            if (mode != null && mode.physicalWidth > 0 && mode.physicalHeight > 0) {
+                val long = max(mode.physicalWidth, mode.physicalHeight)
+                val short = min(mode.physicalWidth, mode.physicalHeight)
+                return short to long
+            }
         }
         @Suppress("DEPRECATION")
         val metrics = resources.displayMetrics
         return metrics.widthPixels to metrics.heightPixels
     }
 
-    /**
-     * 准星中心.
-     * 忽视刘海打开 = 相对整屏居中; 关闭 = 相对"系统栏与挖孔以外"的可用区居中(导航栏不算可用区损失).
-     * 避让轴随屏幕朝向走: 竖屏避让上下, 横屏避让左右; 两个偏移量随之换轴.
-     */
-    private fun crosshairCenter(screenWidth: Int, screenHeight: Int): Pair<Int, Int> {
-        val landscape = screenWidth > screenHeight
-        val insets = usableInsets()
-        val baseX: Int
-        val baseY: Int
-        if (landscape) {
-            baseX = if (settings.crosshairNotchMode) {
-                screenWidth / 2
-            } else {
-                insets.left + (screenWidth - insets.left - insets.right) / 2
-            }
-            baseY = screenHeight / 2
-        } else {
-            baseX = screenWidth / 2
-            baseY = if (settings.crosshairNotchMode) {
-                screenHeight / 2
-            } else {
-                insets.top + (screenHeight - insets.top) / 2
-            }
-        }
-        val offsetX = if (landscape) settings.crosshairOffsetY else settings.crosshairOffsetX
-        val offsetY = if (landscape) settings.crosshairOffsetX else settings.crosshairOffsetY
-        return (baseX + offsetX) to (baseY + offsetY)
-    }
+    /** 挖孔占掉的边距. 挖孔是硬件属性, 首次取到非零值后固定下来, 不再随窗口状态反复问系统 */
+    private var cachedCutout: android.graphics.Insets? = null
 
-    /**
-     * 可用区里要避让的部分: 只算挖孔, 状态栏一律当作不存在(导航栏本来也不算).
-     * 状态栏能随时唤出又消失, 让它参与计算会让准星跳来跳去.
-     */
     private fun usableInsets(): android.graphics.Insets {
+        val cached = cachedCutout
+        if (cached != null) return cached
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return android.graphics.Insets.NONE
-        return windowManager.currentWindowMetrics.windowInsets
-            .getInsets(WindowInsets.Type.displayCutout())
+        val insets = runCatching {
+            windowManager.currentWindowMetrics.windowInsets
+                .getInsets(WindowInsets.Type.displayCutout())
+        }.getOrNull() ?: return android.graphics.Insets.NONE
+        // 还没探到挖孔就先不缓存, 下次继续探
+        if (insets.left > 0 || insets.top > 0 || insets.right > 0 || insets.bottom > 0) {
+            cachedCutout = insets
+        }
+        return insets
     }
 
     private fun overlayWindowType(): Int =
