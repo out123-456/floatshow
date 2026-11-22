@@ -145,6 +145,8 @@ class OverlayService : Service() {
             panel = null
         }
         lastFontUri = settings.panelFontUri
+        // 层列表变了就换内容; 窗口与球都不动
+        panel?.setLayers(settings.panelLayers)
         applyCrosshair()
         applyPanel()
         // 服务常驻: 前两种层全部收起也不自停, 只有被系统回收才结束, 下次开关不用重建
@@ -278,6 +280,7 @@ class OverlayService : Service() {
             ballSizePx = ballPx,
             controlSizePx = controlPx,
             minSizePx = minPx,
+            initialLayers = settings.panelLayers,
             onState = { state ->
                 settings.editing {
                     putBoolean(SettingsRepository.KEY_PANEL_EXPANDED, state.expanded)

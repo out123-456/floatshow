@@ -51,6 +51,7 @@ class PanelWindow(
     private val ballSizePx: Int,
     private val controlSizePx: Int,
     private val minSizePx: Int,
+    private val initialLayers: List<com.qiqi.floatshow.data.PanelLayer> = emptyList(),
     private val onState: (PanelState) -> Unit,
     private val onClose: () -> Unit
 ) {
@@ -104,7 +105,7 @@ class PanelWindow(
     private var panelView: FrameLayout? = null
     private var bar: FrameLayout? = null
     private var barParams: FrameLayout.LayoutParams? = null
-    private var contentView: View? = null
+    private var contentView: PanelContentView? = null
     private var contentParams: FrameLayout.LayoutParams? = null
     private var titleView: TextView? = null
     private var minimizeView: ImageView? = null
@@ -194,7 +195,7 @@ class PanelWindow(
             setStroke((density).toInt().coerceAtLeast(1), strokeColor())
         }
 
-        val content = PanelContentHost.build(service)
+        val content = PanelContentView(service).apply { setLayers(initialLayers) }
         val contentLp = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
@@ -258,6 +259,7 @@ class PanelWindow(
 
     private fun removePanelWindow() {
         val v = panelView ?: return
+        contentView?.release()
         bar?.setOnTouchListener(null)
         edgeGrips.forEach { it.setOnTouchListener(null) }
         cornerGrips.forEach { it.setOnTouchListener(null) }
@@ -275,6 +277,11 @@ class PanelWindow(
         titleView = null
         minimizeView = null
         closeView = null
+    }
+
+    /** 层列表变了就换内容, 窗口本身不动 */
+    fun setLayers(layers: List<com.qiqi.floatshow.data.PanelLayer>) {
+        contentView?.setLayers(layers)
     }
 
     fun remove() {

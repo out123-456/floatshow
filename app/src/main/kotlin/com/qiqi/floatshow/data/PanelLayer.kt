@@ -6,6 +6,12 @@ import org.json.JSONObject
 /** 层的内容类型. 只有这两种, 不再区分"背景层"与"叠加层"本身 */
 enum class PanelLayerKind { IMAGE, TEXT }
 
+/** 文本层的渲染方式 */
+object PanelTextMode {
+    const val PLAIN = "plain"
+    const val MARKDOWN = "markdown"
+}
+
 /**
  * 优先级标记. 规则:
  *  · TOP 全局最多一个, BOTTOM 全局最多一个, 两者彼此不互斥.
@@ -29,8 +35,31 @@ data class PanelLayer(
     val kind: PanelLayerKind,
     val content: String,
     val pin: PanelLayerPin = PanelLayerPin.NONE,
-    val fixed: Boolean = false
+    /** 锚点标签: true 表示这层被钉在某个坐标系里, 不参与拖动 */
+    val fixed: Boolean = false,
+    /**
+     * 面板内的位置与尺寸(像素, 相对面板左上角).
+     * [width] 或 [height] <= 0 表示"还没定过" — 由渲染端按内容自身的天然尺寸填一次.
+     */
+    val x: Int = 0,
+    val y: Int = 0,
+    val width: Int = 0,
+    val height: Int = 0,
+    /** 旋转档位 0..3, 每档 90 度; 与 [mirrored] 一起构成 8 种朝向 */
+    val rotation: Int = 0,
+    /** 左右镜像; 与旋转互不排斥 */
+    val mirrored: Boolean = false,
+    /** 文本渲染方式, 见 [PanelTextMode] */
+    val textMode: String = PanelTextMode.PLAIN
 ) {
+    /** 归一化后的朝向索引 0..7, 用于"8 状态空间" */
+    val orientation: Int get() = (rotation and 3) * 2 + if (mirrored) 1 else 0
+
+    fun withOrientation(index: Int): PanelLayer = copy(
+        rotation = (index / 2) and 3,
+        mirrored = index % 2 == 1
+    )
+
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
         put("name", name)
@@ -38,6 +67,13 @@ data class PanelLayer(
         put("content", content)
         put("pin", pin.name)
         put("fixed", fixed)
+        put("x", x)
+        put("y", y)
+        put("w", width)
+        put("h", height)
+        put("rot", rotation)
+        put("mirror", mirrored)
+        put("textMode", textMode)
     }
 
     companion object {
@@ -49,7 +85,14 @@ data class PanelLayer(
             content = json.optString("content"),
             pin = runCatching { PanelLayerPin.valueOf(json.optString("pin")) }
                 .getOrDefault(PanelLayerPin.NONE),
-            fixed = json.optBoolean("fixed")
+            fixed = json.optBoolean("fixed"),
+            x = json.optInt("x"),
+            y = json.optInt("y"),
+            width = json.optInt("w"),
+            height = json.optInt("h"),
+            rotation = json.optInt("rot") and 3,
+            mirrored = json.optBoolean("mirror"),
+            textMode = json.optString("textMode").ifBlank { PanelTextMode.PLAIN }
         )
 
         fun listToJson(layers: List<PanelLayer>): String =
