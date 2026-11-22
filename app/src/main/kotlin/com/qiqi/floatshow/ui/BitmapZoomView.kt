@@ -142,8 +142,11 @@ class BitmapZoomView(context: Context) : View(context) {
             // 2. 有 raw 就直接用 raw, 完全不碰原图的压缩流
             val rawFile = RawImage.fileFor(context, uri)
             val opened = if (rawFile.isFile && rawFile.length() > RawImage.HEADER) {
-                runCatching { RawReader(rawFile) }.getOrNull()
+                runCatching { RawReader(rawFile) }.onFailure {
+                    android.util.Log.w("BitmapZoomView", "raw 打开失败: ${rawFile.length()} 字节", it)
+                }.getOrNull()
             } else {
+                android.util.Log.i("BitmapZoomView", "无 raw: ${rawFile.absolutePath} 存在=${rawFile.isFile}")
                 null
             }
             if (opened != null) {
@@ -263,17 +266,23 @@ class BitmapZoomView(context: Context) : View(context) {
         val viewX = -offsetX / scale
         val viewY = -offsetY / scale
 
-        // 视口覆盖面积太大时(缩放到全图)没必要搬原始像素, 直接用降采样整图
-        if (viewW.toLong() * viewH.toLong() > WINDOW_PIXEL_LIMIT) {
-            drawWhole(canvas, overview ?: full)
-            return
-        }
-
-        if (reader != null) {
+        // 该不该用原始像素, 只看一件事: 降采样整图在屏幕上是不是被放大了.
+        // 放大就说明它的像素已经不够用, 必须换 raw; 缩小或持平则用它更省.
+        // (以前按"视口面积"判断是错的: 8192 的图要放大到 4 倍才肯用 raw,
+        //  中间那一大段全是把 1024 的图拉大, 看起来就是"raw 没生效")
+        val upscale = overviewUpscale()
+        if (reader != null && upscale > 1.02f) {
             drawFromRaw(canvas, viewX, viewY, viewW, viewH)
             return
         }
-        drawWhole(canvas, full ?: overview)
+        drawWhole(canvas, overview ?: full)
+    }
+
+    /** 降采样整图在当前缩放下被拉大了多少倍; 没有降采样图时返回很大的值 */
+    private fun overviewUpscale(): Float {
+        val bmp = overview ?: return Float.MAX_VALUE
+        if (bmp.isRecycled || bmp.width <= 0) return Float.MAX_VALUE
+        return imageWidth * scale / bmp.width
     }
 
     /** 整张位图铺到当前变换上 */
@@ -305,7 +314,9 @@ class BitmapZoomView(context: Context) : View(context) {
         val coverW = needW
         val coverH = needH
 
-        val covered = window != null && !window!!.isRecycled &&
+        // windowReady 必须算进 covered: 只判断几何位置的话, 一旦某次填充失败,
+        // 后续每帧都认为"已经覆盖好了"而不再重试, 画面就永远停在降采样图上
+        val covered = windowReady && window != null && !window!!.isRecycled &&
             viewX >= windowX && viewY >= windowY &&
             viewX + viewW <= windowX + windowW &&
             viewY + viewH <= windowY + windowH
@@ -364,7 +375,9 @@ class BitmapZoomView(context: Context) : View(context) {
         val (fx, fy, fw, fh) = want
         executor.execute {
             val pixels = runCatching {
-                IntArray(fw * fh).also { source.readRows(fy, fh, it) }
+                IntArray(fw * fh).also { source.readRows(fx, fy, fw, fh, it) }
+            }.onFailure {
+                android.util.Log.w("BitmapZoomView", "读 raw 失败 x=$fx y=$fy w=$fw h=$fh", it)
             }.getOrNull()
             post {
                 if (current != token) {
@@ -412,9 +425,6 @@ class BitmapZoomView(context: Context) : View(context) {
     companion object {
         /** 超过这么多像素就不再整图进内存(约 64MB) */
         private const val FULL_PIXEL_LIMIT = 4096 * 4096
-
-        /** 视口覆盖超过这么多像素(即缩得很小)时才用降采样整图, 约 32MB 一帧 */
-        private const val WINDOW_PIXEL_LIMIT = 8L * 1024L * 1024L
 
         /** 降采样整图的长边, 与抽屉预览一致 */
         private const val OVERVIEW_SIDE = 1024

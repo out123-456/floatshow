@@ -157,14 +157,23 @@ class RawReader(file: File) {
     }
 
     /**
-     * 读出 [y0, y0 + rows) 这整段行, 写进 [out] 的前 width*rows 个元素.
-     * 必须用 duplicate(): MappedByteBuffer 的 position 是共享状态, 直接改会互相打架.
+     * 读出矩形 [x0, x0+w) × [y0, y0+rows), 按行优先写进 [out] 的前 w*rows 个元素.
+     *
+     * 必须带列区间: 文件是按整行存的, 而调用方要的是视口那么宽的一块.
+     * 曾经这里只按整行读, 8192 宽的图要往 1156 宽的数组里塞 8192*rows 个 int,
+     * 越界异常被吞掉, 表现就是 raw 永远画不出来.
+     *
+     * 用 duplicate(): MappedByteBuffer 的 position 是共享状态, 直接改会互相打架.
      */
-    fun readRows(y0: Int, rows: Int, out: IntArray) {
-        val offset = RawImage.HEADER.toLong() + y0.toLong() * width * 4
+    fun readRows(x0: Int, y0: Int, w: Int, rows: Int, out: IntArray) {
         val view = mapped.duplicate().order(ByteOrder.LITTLE_ENDIAN)
-        view.position(offset.toInt())
-        view.asIntBuffer().get(out, 0, width * rows)
+        val rowBytes = width.toLong() * 4
+        val base = RawImage.HEADER.toLong() + y0.toLong() * rowBytes + x0.toLong() * 4
+        for (r in 0 until rows) {
+            val start = (base + r * rowBytes).toInt()
+            view.position(start)
+            view.asIntBuffer().get(out, r * w, w)
+        }
     }
 
     fun close() {
