@@ -145,7 +145,9 @@ class PanelContentView(context: Context) : View(context) {
 
     /** 屏幕点是否落在某个固定/锚定层的矩形里(按当前相机反变换) */
     private fun hitFixedLayer(screenX: Float, screenY: Float): Boolean {
-        val fixedLayers = layers.filter { it.fixed }
+        // 固定(锚点=面板) 与 有父层 的层都不可触摸:
+        // 有父层 -> 位置由父层算出来, 拖它没有意义, 也无法缩放
+        val fixedLayers = layers.filter { it.fixed || it.anchorId != null }
         if (fixedLayers.isEmpty()) return false
         val inverse = Matrix()
         val forward = Matrix()
@@ -184,18 +186,60 @@ class PanelContentView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val order = PanelLayers.renderOrder(layers)
+        // 每帧记录哪些层真的落在视窗里, 画完统一报给主界面
+        visibleIds.clear()
+        // 只有"锚点是面板"的层是根; 子层在父层的坐标系里画
+        val order = PanelLayers.renderOrder(PanelLayers.roots(layers))
         canvas.save()
         canvas.translate(contentOffsetX, contentOffsetY)
         canvas.scale(contentScale, contentScale)
-        for (layer in order) {
-            when (layer.kind) {
-                PanelLayerKind.IMAGE -> drawImage(canvas, layer)
-                PanelLayerKind.TEXT -> drawText(canvas, layer)
-            }
+        for (layer in order) drawTree(canvas, layer)
+        canvas.restore()
+        PanelVisibility.set(layers.map { it.id }.toSet() - visibleIds)
+    }
+
+    private val visibleIds = HashSet<String>()
+
+    /**
+     * 画一层, 再把它的子层画在同一坐标系里.
+     * 变换原点固定在这一层的左上角(不是中心), 这样上下左右相邻的层不会因为旋转而互相穿插.
+     */
+    private fun drawTree(canvas: Canvas, layer: PanelLayer) {
+        val (w, h) = layerSize(layer)
+        if (w <= 0f || h <= 0f) return
+        // 先镜像(绕内容盒子的垂直中线, 保证内容留在盒内), 再绕左上角旋转, 最后平移到层的位置
+        val m = Matrix()
+        if (layer.mirrored) {
+            m.setScale(-1f, 1f)
+            m.postTranslate(w, 0f)
+        }
+        m.postRotate(layer.rotation.toFloat() * 90f, 0f, 0f)
+        val box = RectF(0f, 0f, w, h)
+        m.mapRect(box)
+        m.postTranslate(layer.x - box.left, layer.y - box.top)
+
+        canvas.save()
+        canvas.concat(m)
+        // 可见性: 变换后的包围盒与视窗相交就算可见
+        val screen = RectF(0f, 0f, w, h)
+        m.mapRect(screen)
+        val abs = Matrix()
+        canvas.getMatrix(abs)
+        abs.mapRect(screen)
+        if (screen.right > 0f && screen.left < getWidth() &&
+            screen.bottom > 0f && screen.top < getHeight()
+        ) {
+            visibleIds += layer.id
+        }
+
+        when (layer.kind) {
+            PanelLayerKind.IMAGE -> drawImage(canvas, layer, w, h)
+            PanelLayerKind.TEXT -> drawText(canvas, layer)
+        }
+        for (child in PanelLayers.childrenOf(layers, layer.id)) {
+            drawTree(canvas, child)
         }
         canvas.restore()
-        reportVisibility(canvas)
     }
 
     /**
@@ -232,19 +276,10 @@ class PanelContentView(context: Context) : View(context) {
 
     // ── 位图 ────────────────────────────────────────────────
 
-    private fun drawImage(canvas: Canvas, layer: PanelLayer) {
+    private fun drawImage(canvas: Canvas, layer: PanelLayer, w: Float, h: Float) {
         val uri = runCatching { Uri.parse(layer.content) }.getOrNull() ?: return
         val natural = naturalSize(layer, uri) ?: return
-        val w = if (layer.width > 0) layer.width.toFloat() else natural.first
-        val h = if (layer.height > 0) layer.height.toFloat() else natural.second
-        if (w <= 0f || h <= 0f) return
 
-        canvas.save()
-        // 以层矩形的中心为变换原点: 旋转与镜像都不会把内容甩到别处
-        canvas.translate(layer.x + w / 2f, layer.y + h / 2f)
-        canvas.rotate(layer.rotation.toFloat() * 90f)
-        if (layer.mirrored) canvas.scale(-1f, 1f)
-        canvas.translate(-w / 2f, -h / 2f)
 
         if (PanelContentSource.isSvg(context, uri)) {
             val picture = svgPicture(layer, uri)

@@ -180,6 +180,90 @@ object PanelLayers {
         if (!canPinBottom(layers, id)) layers
         else layers.map { if (it.id == id) it.copy(pin = it.pin.toggle(PanelLayerPin.BOTTOM)) else it }
 
+    // ── 锚点(相对固定) ─────────────────────────────────────
+
+    /**
+     * 能不能让 [id] 锚到 [targetId]: 不能锚自己, 也不能锚自己的后代(会成环).
+     * 锚点为面板(=null)不需要检测.
+     */
+    fun canAnchor(layers: List<PanelLayer>, id: String, targetId: String?): Boolean {
+        if (targetId == null) return true
+        if (targetId == id) return false
+        return !isAncestor(layers, ancestor = id, of = targetId)
+    }
+
+    /** [ancestor] 是不是 [of] 的祖先(逐级向上追) */
+    fun isAncestor(layers: List<PanelLayer>, ancestor: String, of: String): Boolean {
+        var cursor = layers.firstOrNull { it.id == of }?.anchorId
+        var guard = 0
+        while (cursor != null && guard++ < 64) {
+            if (cursor == ancestor) return true
+            cursor = layers.firstOrNull { it.id == cursor }?.anchorId
+        }
+        return false
+    }
+
+    /** 某个层的直接子层 */
+    fun childrenOf(layers: List<PanelLayer>, id: String): List<PanelLayer> =
+        layers.filter { it.anchorId == id }
+
+    /** 锚点层: anchorId 为 null 的那些(它们的锚点是面板) */
+    fun roots(layers: List<PanelLayer>): List<PanelLayer> = layers.filter { it.anchorId == null }
+
+    fun setAnchor(layers: List<PanelLayer>, id: String, targetId: String?): List<PanelLayer> {
+        if (!canAnchor(layers, id, targetId)) return layers
+        return layers.map {
+            if (it.id != id) it
+            else it.copy(anchorId = targetId, fixed = true)
+        }
+    }
+
+    fun clearAnchor(layers: List<PanelLayer>, id: String): List<PanelLayer> =
+        layers.map { if (it.id == id) it.copy(anchorId = null, fixed = false) else it }
+
+    /** 解除这一层的全部子层(它们回到锚点=面板) */
+    fun detachChildren(layers: List<PanelLayer>, id: String): List<PanelLayer> =
+        layers.map { if (it.anchorId == id) it.copy(anchorId = null, fixed = false) else it }
+
+    /** 有子层的层不能删(先解除); 锚点为面板的层本身可以删 */
+    fun canDelete(layers: List<PanelLayer>, id: String): Boolean =
+        layers.none { it.anchorId == id }
+
+    /**
+     * 改尺寸时所有后代按同一比例缩放: 相对距离与大小同步改变.
+     * 锚点是"层对层"的转接点, 所以比例要一路传下去.
+     */
+    fun resizeWithChildren(layers: List<PanelLayer>, id: String, w: Int, h: Int): List<PanelLayer> {
+        val target = layers.firstOrNull { it.id == id } ?: return layers
+        val oldW = target.width
+        val oldH = target.height
+        if (oldW <= 0 || oldH <= 0 || w <= 0 || h <= 0) {
+            return layers.map { if (it.id == id) it.copy(width = w, height = h) else it }
+        }
+        val kx = w.toFloat() / oldW
+        val ky = h.toFloat() / oldH
+        val out = layers.toMutableList()
+        val index = out.indexOfFirst { it.id == id }
+        if (index >= 0) out[index] = out[index].copy(width = w, height = h)
+        scaleChildren(out, id, kx, ky)
+        return out.toList()
+    }
+
+    /** 递归把 [parentId] 的整棵子树按比例缩放 */
+    private fun scaleChildren(holder: MutableList<PanelLayer>, parentId: String, kx: Float, ky: Float) {
+        for (i in holder.indices) {
+            val layer = holder[i]
+            if (layer.anchorId != parentId) continue
+            holder[i] = layer.copy(
+                x = (layer.x * kx).toInt(),
+                y = (layer.y * ky).toInt(),
+                width = if (layer.width > 0) (layer.width * kx).toInt() else layer.width,
+                height = if (layer.height > 0) (layer.height * ky).toInt() else layer.height
+            )
+            scaleChildren(holder, layer.id, kx, ky)
+        }
+    }
+
     /** 固定只是标记, 不影响层级 */
     fun toggleFixed(layers: List<PanelLayer>, id: String): List<PanelLayer> =
         layers.map { if (it.id == id) it.copy(fixed = !it.fixed) else it }
@@ -221,7 +305,11 @@ object PanelLayers {
     fun replaceContent(layers: List<PanelLayer>, id: String, content: String): List<PanelLayer> =
         layers.map { if (it.id == id) it.copy(content = content) else it }
 
-    fun remove(layers: List<PanelLayer>, id: String): List<PanelLayer> = layers.filterNot { it.id == id }
+    fun remove(layers: List<PanelLayer>, id: String): List<PanelLayer> {
+        // 删掉一个层时, 它的子层回到"锚点=面板", 避免悬空引用
+        val next = layers.map { if (it.anchorId == id) it.copy(anchorId = null, fixed = true) else it }
+        return next.filterNot { it.id == id }
+    }
 
     /** 名称是否已被别的层占用([excludeId] 是正在改名的那个层) */
     fun isNameTaken(layers: List<PanelLayer>, name: String, excludeId: String? = null): Boolean {

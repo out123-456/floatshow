@@ -1,6 +1,9 @@
 package com.qiqi.floatshow.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -66,6 +69,7 @@ fun PanelContentSection(
     onToggleTop: (String) -> Unit,
     onToggleBottom: (String) -> Unit,
     onToggleFixed: (String) -> Unit,
+    onSetAnchor: (String, String?) -> Unit,
     onDelete: (String) -> Unit,
     onOpenLayer: (String) -> Unit,
     onRenameLayer: (String) -> Unit,
@@ -88,6 +92,7 @@ fun PanelContentSection(
                 onToggleTop = { onToggleTop(layer.id) },
                 onToggleBottom = { onToggleBottom(layer.id) },
                 onToggleFixed = { onToggleFixed(layer.id) },
+                onSetAnchor = { target -> onSetAnchor(layer.id, target) },
                 onDelete = { onDelete(layer.id) },
                 onOpen = { onOpenLayer(layer.id) },
                 onRename = { onRenameLayer(layer.id) },
@@ -125,6 +130,7 @@ private fun LayerRow(
     onToggleTop: () -> Unit,
     onToggleBottom: () -> Unit,
     onToggleFixed: () -> Unit,
+    onSetAnchor: (String?) -> Unit,
     onDelete: () -> Unit,
     onOpen: () -> Unit,
     onRename: () -> Unit,
@@ -189,12 +195,11 @@ private fun LayerRow(
             highlighted = layer.pin == PanelLayerPin.BOTTOM,
             onClick = onToggleBottom
         )
-        SmallAction(
-            icon = Icons.Rounded.PushPin,
-            description = R.string.panel_layer_fixed,
-            enabled = true,
-            highlighted = layer.fixed,
-            onClick = onToggleFixed
+        FixedAction(
+            layer = layer,
+            layers = layers,
+            onToggleFixed = onToggleFixed,
+            onSetAnchor = onSetAnchor
         )
         MoreAction(
             layer = layer,

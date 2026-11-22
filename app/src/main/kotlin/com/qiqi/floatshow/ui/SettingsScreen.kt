@@ -471,6 +471,9 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                         onToggleTop = { id -> updateLayers { PanelLayers.togglePinTop(it, id) } },
                         onToggleBottom = { id -> updateLayers { PanelLayers.togglePinBottom(it, id) } },
                         onToggleFixed = { id -> updateLayers { PanelLayers.toggleFixed(it, id) } },
+                        onSetAnchor = { id, target ->
+                            updateLayers { PanelLayers.setAnchor(it, id, target) }
+                        },
                         onDelete = { id -> updateLayers { PanelLayers.remove(it, id) } },
                         onOpenLayer = { id -> openedLayerId = id },
                         onRenameLayer = { id ->

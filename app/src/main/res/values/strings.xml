@@ -178,4 +178,7 @@
     <string name="panel_pre_locked">已固定, 不能预处理</string>
     <string name="panel_layer_reset_position">重置位置</string>
     <string name="panel_layer_reset_desc">把内容拉回面板左上角, 并按 1:1 显示</string>
+    <string name="panel_anchor_title">长按选择相对固定对象</string>
+    <string name="panel_anchor_panel">面板本身(完全不动)</string>
+    <string name="panel_anchor_clear">解除相对固定</string>
 </resources>
