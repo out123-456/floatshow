@@ -171,16 +171,6 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // 层列表每次改动都整体写回, 只触发一次监听
-    fun updateLayers(block: (List<PanelLayer>) -> List<PanelLayer>) {
-        val before = layers
-        val next = block(before)
-        if (next == layers) return
-        layers = next
-        settings.panelLayers = next
-        collectOrphanRaw(before, next)
-    }
-
     /**
      * 层没了(删除、替换内容)之后, 它的 raw 就成了孤儿. 留着只会白占上百 MB, 顺手删掉.
      * 只删"上一版还在、这一版不再被任何层引用"的图片 uri.
@@ -200,6 +190,16 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
             }
         }
         if (dropped.isNotEmpty()) rawReady = rawReady - dropped
+    }
+
+    // 层列表每次改动都整体写回, 只触发一次监听
+    fun updateLayers(block: (List<PanelLayer>) -> List<PanelLayer>) {
+        val before = layers
+        val next = block(before)
+        if (next == layers) return
+        layers = next
+        settings.panelLayers = next
+        collectOrphanRaw(before, next)
     }
 
     /**
