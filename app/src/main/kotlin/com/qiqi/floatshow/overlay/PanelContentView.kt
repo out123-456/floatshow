@@ -187,7 +187,7 @@ class PanelContentView(context: Context) : View(context) {
                 canvas.restore()
                 return
             }
-            canvas.drawBitmap(entry.bitmap, entry.src, clipped, imagePaint)
+            canvas.drawBitmap(entry.bitmap, null, clipped, imagePaint)
         }
         canvas.restore()
     }
