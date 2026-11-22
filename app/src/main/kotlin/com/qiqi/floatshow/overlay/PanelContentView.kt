@@ -187,7 +187,7 @@ class PanelContentView(context: Context) : View(context) {
                 canvas.restore()
                 return
             }
-            canvas.drawBitmap(entry, entry.src, clipped, imagePaint)
+            canvas.drawBitmap(entry.bitmap, entry.src, clipped, imagePaint)
         }
         canvas.restore()
     }
@@ -369,7 +369,7 @@ object PanelContentSource {
                     outH
                 )
             } catch (e: Throwable) {
-                null to 0 to 0
+                Triple(null, 0, 0)
             } finally {
                 reader.close()
             }
