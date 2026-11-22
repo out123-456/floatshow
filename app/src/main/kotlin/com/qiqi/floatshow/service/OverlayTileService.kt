@@ -5,7 +5,11 @@ import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import com.qiqi.floatshow.data.SettingsRepository
 
-/** 快捷设置磁贴: 一键开关准星 */
+/**
+ * 快捷设置磁贴: 一键开关准星.
+ * 它和主页那个开关写的是同一个 `crosshair_enabled`, 只是主页原先没监听这个 key,
+ * 所以从磁贴改了之后主页仍显示旧状态, 看起来像两个互不相干的开关.
+ */
 class OverlayTileService : TileService() {
 
     override fun onStartListening() {

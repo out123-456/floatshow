@@ -121,6 +121,11 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
             if (key == SettingsRepository.KEY_SERVICE_RUNNING) {
                 serviceRunning = settings.serviceRunning
             }
+            // 准星也由外部改: 快捷设置磁贴直接写同一个 key. 不跟着刷新,
+            // 主页开关就会停在旧状态, 看起来像两个互不相干的开关
+            if (key == SettingsRepository.KEY_CROSSHAIR_ENABLED) {
+                crosshairEnabled = settings.crosshairEnabled
+            }
             if (key == SettingsRepository.KEY_PANEL_ENABLED) {
                 panelEnabled = settings.panelEnabled
             }
