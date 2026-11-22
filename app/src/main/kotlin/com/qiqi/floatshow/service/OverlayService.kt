@@ -188,9 +188,12 @@ class OverlayService : Service() {
                 pxW,
                 pxH,
                 overlayWindowType(),
-                // 准星永远点击穿透`,不拦截任何操作
+                // 准星永远点击穿透`,不拦截任何操作.
+                // LAYOUT_IN_SCREEN 必须有: 没有它, y 的原点是状态栏下方,
+                // 状态栏一出现准星就整体下移, 与 crosshairCenter() 算出的坐标对不上.
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT
             ).apply {
@@ -314,19 +317,11 @@ class OverlayService : Service() {
      * 后者会随状态栏显隐变化, 导致准星在唤出状态栏后突然位移.
      */
     /**
-     * 屏幕尺寸. 必须与状态栏是否显示无关, 否则准星会随状态栏出现而漂移.
-     *
-     * getRealSize() 给的是"当前 display area", 实测同一台机器会从 2000 跳到 2160,
-     * 所以它只能当最后的兜底. 优先 maximumWindowMetrics: 它是窗口能达到的最大范围,
-     * 只随旋转与显示设置变化, 不看状态栏脸色.
+     * 屏幕尺寸. 必须尊重 `wm size` 的覆盖值, 所以 getRealSize() 优先:
+     * 它给的是逻辑 display 的当前尺寸, 覆盖后就是覆盖值.
+     * maximumWindowMetrics 不能用: 它给的是物理溢出范围, 覆盖成 900x2000 后仍报原始分辨率.
      */
     private fun screenSize(): Pair<Int, Int> {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val bounds = runCatching { windowManager.maximumWindowMetrics.bounds }.getOrNull()
-            if (bounds != null && bounds.width() > 0 && bounds.height() > 0) {
-                return bounds.width() to bounds.height()
-            }
-        }
         val display = getSystemService(android.hardware.display.DisplayManager::class.java)
             ?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
         if (display != null) {
@@ -334,12 +329,10 @@ class OverlayService : Service() {
             @Suppress("DEPRECATION")
             display.getRealSize(point)
             if (point.x > 0 && point.y > 0) return point.x to point.y
-            val mode = runCatching { display.mode }.getOrNull()
-            if (mode != null && mode.physicalWidth > 0 && mode.physicalHeight > 0) {
-                val long = max(mode.physicalWidth, mode.physicalHeight)
-                val short = min(mode.physicalWidth, mode.physicalHeight)
-                return short to long
-            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = windowManager.currentWindowMetrics.bounds
+            if (bounds.width() > 0 && bounds.height() > 0) return bounds.width() to bounds.height()
         }
         @Suppress("DEPRECATION")
         val metrics = resources.displayMetrics
