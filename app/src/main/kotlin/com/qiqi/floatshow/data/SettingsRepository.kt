@@ -95,6 +95,11 @@ class SettingsRepository(context: Context) {
         get() = prefs.getInt(KEY_PANEL_BALL_Y, UNSET_POSITION)
         set(v) = prefs.edit { putInt(KEY_PANEL_BALL_Y, v) }
 
+    /** 每加一就让面板把内容相机复位一次(主界面"重置位置"用) */
+    var panelResetCameraToken: Int
+        get() = prefs.getInt(KEY_PANEL_RESET_CAMERA, 0)
+        set(v) = prefs.edit { putInt(KEY_PANEL_RESET_CAMERA, v) }
+
     var panelExpanded: Boolean
         get() = prefs.getBoolean(KEY_PANEL_EXPANDED, false)
         set(v) = prefs.edit { putBoolean(KEY_PANEL_EXPANDED, v) }
@@ -161,6 +166,7 @@ class SettingsRepository(context: Context) {
         const val KEY_PANEL_BALL_Y = "panel_ball_y"
         const val KEY_PANEL_WIDTH = "panel_width_px"
         const val KEY_PANEL_HEIGHT = "panel_height_px"
+        const val KEY_PANEL_RESET_CAMERA = "panel_reset_camera"
         const val KEY_PANEL_EXPANDED = "panel_expanded"
         const val KEY_PANEL_TOOLBAR_BOTTOM = "panel_toolbar_bottom"
         const val KEY_PANEL_LAYERS = "panel_layers_json"

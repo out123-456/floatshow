@@ -176,4 +176,6 @@
     <string name="panel_pre_markdown">Markdown</string>
     <string name="panel_pre_scale">显示倍数</string>
     <string name="panel_pre_locked">已固定, 不能预处理</string>
+    <string name="panel_layer_reset_position">重置位置</string>
+    <string name="panel_layer_reset_desc">把内容拉回面板左上角, 并按 1:1 显示</string>
 </resources>

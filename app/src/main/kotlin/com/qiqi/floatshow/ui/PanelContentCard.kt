@@ -51,6 +51,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import com.qiqi.floatshow.data.PanelLayerKind
 import com.qiqi.floatshow.data.PanelLayerPin
 import com.qiqi.floatshow.data.PanelLayers
+import com.qiqi.floatshow.overlay.PanelVisibility
 
 /**
  * 悬浮面板的内容区设置: 层列表 + 字体.
@@ -137,12 +138,15 @@ private fun LayerRow(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 点类型图标才展开抽屉, 否则点名字是改名
+        // 点类型图标才展开抽屉, 否则点名字是改名.
+        // 内容被拖到视窗之外时图标变错误色: 那行是用户唯一能摸到的入口, 点它进去就有"重置位置"
+        val hidden = layer.id in PanelVisibility.invisibleLayerIds.value
         IconButton(onClick = onOpen, modifier = Modifier.size(40.dp)) {
             Icon(
                 imageVector = layer.kind.icon(),
                 contentDescription = stringResource(R.string.panel_layer_open),
-                tint = MaterialTheme.colorScheme.onSurface
+                tint = if (hidden) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurface
             )
         }
 

@@ -545,6 +545,9 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                             RawState.CONVERTED
                         else -> RawState.AVAILABLE
                     },
+                    onResetPosition = {
+                        settings.panelResetCameraToken = settings.panelResetCameraToken + 1
+                    },
                     onToggleRaw = {
                         val layerUri = Uri.parse(layer.content)
                         if (RawImage.exists(context, layerUri)) {

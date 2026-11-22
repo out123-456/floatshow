@@ -100,6 +100,14 @@ class PanelContentView(context: Context) : View(context) {
         }
     )
 
+    /** 把内容相机恢复到左上角 1:1 */
+    fun resetCamera() {
+        contentOffsetX = 0f
+        contentOffsetY = 0f
+        contentScale = 1f
+        invalidate()
+    }
+
     fun setLayers(next: List<PanelLayer>) {
         val before = layers
         if (before == next) return
@@ -109,8 +117,20 @@ class PanelContentView(context: Context) : View(context) {
         invalidate()
     }
 
+    /** 手指落在固定层上时整段手势都不响应 */
+    private var ignoreGesture = false
+
     /** 面板尺寸变化时不需要做任何事: 内容坐标是绝对的, 不随视窗拉伸 */
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            ignoreGesture = hitFixedLayer(event.x, event.y)
+        }
+        if (ignoreGesture) {
+            if (event.actionMasked == MotionEvent.ACTION_UP ||
+                event.actionMasked == MotionEvent.ACTION_CANCEL
+            ) ignoreGesture = false
+            return true
+        }
         // 双指缩放优先级高于拖动
         scaleDetector.onTouchEvent(event)
         if (!scaleDetector.isInProgress) gestureDetector.onTouchEvent(event)
@@ -120,6 +140,45 @@ class PanelContentView(context: Context) : View(context) {
             scaleDetector.onTouchEvent(event)
         }
         return true
+    }
+
+    /** 屏幕点是否落在某个固定/锚定层的矩形里(按当前相机反变换) */
+    private fun hitFixedLayer(screenX: Float, screenY: Float): Boolean {
+        val fixedLayers = layers.filter { it.fixed }
+        if (fixedLayers.isEmpty()) return false
+        val inverse = Matrix()
+        val forward = Matrix()
+        forward.postTranslate(contentOffsetX, contentOffsetY)
+        forward.postScale(contentScale, contentScale)
+        if (!forward.invert(inverse)) return false
+        val p = floatArrayOf(screenX, screenY)
+        inverse.mapPoints(p)
+        val x = p[0]
+        val y = p[1]
+        return fixedLayers.any { layer ->
+            val w = layerBoxWidth(layer)
+            val h = layerBoxHeight(layer)
+            x >= layer.x && y >= layer.y && x <= layer.x + w && y <= layer.y + h
+        }
+    }
+
+    /** 层在面板里的宽高(取不到天然尺寸就按 0, 当作不可点) */
+    private fun layerSize(layer: PanelLayer): Pair<Float, Float> {
+        if (layer.width > 0 && layer.height > 0) {
+            return layer.width.toFloat() to layer.height.toFloat()
+        }
+        return naturalSizes[layer.content] ?: (0f to 0f)
+    }
+
+    /** 旋转 90/270 后包围盒的宽高互换 */
+    private fun layerBoxWidth(layer: PanelLayer): Float {
+        val (w, h) = layerSize(layer)
+        return if (layer.rotation % 2 == 1) h else w
+    }
+
+    private fun layerBoxHeight(layer: PanelLayer): Float {
+        val (w, h) = layerSize(layer)
+        return if (layer.rotation % 2 == 1) w else h
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -135,6 +194,37 @@ class PanelContentView(context: Context) : View(context) {
             }
         }
         canvas.restore()
+        reportVisibility(canvas)
+    }
+
+    /**
+     * 层在屏幕上的包围盒完全落在视窗之外时, 记进 [PanelVisibility], 让主界面把种类图标标红.
+     * 这是"用户自己把内容拖丢了"的唯一提示.
+     */
+    private fun reportVisibility(canvas: Canvas) {
+        val visible = HashSet<String>()
+        val m = Matrix()
+        canvas.getMatrix(m)
+        val pts = FloatArray(8)
+        for (layer in layers) {
+            val w = layerBoxWidth(layer)
+            val h = layerBoxHeight(layer)
+            if (w <= 0f || h <= 0f) continue
+            pts[0] = layer.x; pts[1] = layer.y
+            pts[2] = layer.x + w; pts[3] = layer.y
+            pts[4] = layer.x; pts[5] = layer.y + h
+            pts[6] = layer.x + w; pts[7] = layer.y + h
+            m.mapPoints(pts)
+            val minX = minOf(pts[0], pts[2], pts[4], pts[6])
+            val maxX = maxOf(pts[0], pts[2], pts[4], pts[6])
+            val minY = minOf(pts[1], pts[3], pts[5], pts[7])
+            val maxY = maxOf(pts[1], pts[3], pts[5], pts[7])
+            if (maxX > 0f && minX < getWidth() && maxY > 0f && minY < getHeight()) {
+                visible += layer.id
+            }
+        }
+        val invisible = layers.map { it.id }.toSet() - visible
+        PanelVisibility.set(invisible)
     }
 
     // ── 位图 ────────────────────────────────────────────────

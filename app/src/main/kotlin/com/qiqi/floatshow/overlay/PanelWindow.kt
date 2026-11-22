@@ -260,6 +260,7 @@ class PanelWindow(
     private fun removePanelWindow() {
         val v = panelView ?: return
         contentView?.release()
+        PanelVisibility.clear()
         bar?.setOnTouchListener(null)
         edgeGrips.forEach { it.setOnTouchListener(null) }
         cornerGrips.forEach { it.setOnTouchListener(null) }
@@ -277,6 +278,11 @@ class PanelWindow(
         titleView = null
         minimizeView = null
         closeView = null
+    }
+
+    /** 把内容相机恢复到左上角 1:1 */
+    fun resetContentCamera() {
+        contentView?.resetCamera()
     }
 
     /** 层列表变了就换内容, 窗口本身不动 */

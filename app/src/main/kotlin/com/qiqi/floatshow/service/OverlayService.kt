@@ -52,6 +52,7 @@ class OverlayService : Service() {
     private var lastPanelEnabled = false
     /** 本次新建窗口是不是开关从关变开触发的; 只有这种才算全新打开 */
     private var freshOpen = false
+    private var lastResetCameraToken = 0
 
     private val handler = Handler(Looper.getMainLooper())
     private var pendingSync = false
@@ -147,6 +148,12 @@ class OverlayService : Service() {
         lastFontUri = settings.panelFontUri
         // 层列表变了就换内容; 窗口与球都不动
         panel?.setLayers(settings.panelLayers)
+        // "重置位置": 把内容相机拉回左上角 1:1
+        val resetToken = settings.panelResetCameraToken
+        if (resetToken != lastResetCameraToken) {
+            lastResetCameraToken = resetToken
+            panel?.resetContentCamera()
+        }
         applyCrosshair()
         applyPanel()
         // 服务常驻: 前两种层全部收起也不自停, 只有被系统回收才结束, 下次开关不用重建

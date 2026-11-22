@@ -59,6 +59,7 @@ fun LayerSheet(
     /** Raw 的状态; 不适用时传 null, 那一格就不出现 */
     rawState: RawState? = null,
     onToggleRaw: (() -> Unit)? = null,
+    onResetPosition: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var svgScale by remember(layer.id) { mutableStateOf(1f) }
@@ -124,6 +125,13 @@ fun LayerSheet(
                     flushText()
                     onDelete()
                 }) { Text(stringResource(R.string.panel_layer_sheet_delete)) }
+            }
+
+            // 内容被拖出视窗后的兜底入口
+            if (onResetPosition != null) {
+                TextButton(onClick = onResetPosition) {
+                    Text(stringResource(R.string.panel_layer_reset_position))
+                }
             }
 
             // SVG 倍数: 顶部按钮下面单独一行
