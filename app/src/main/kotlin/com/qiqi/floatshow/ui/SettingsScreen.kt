@@ -477,6 +477,18 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                             pendingRenameId = id
                             renameText = layers.firstOrNull { it.id == id }?.name ?: ""
                             renameError = false
+                        },
+                        onRotateLeft = { id -> updateLayers { PanelLayers.rotateLeft(it, id) } },
+                        onRotateRight = { id -> updateLayers { PanelLayers.rotateRight(it, id) } },
+                        onToggleMirror = { id -> updateLayers { PanelLayers.toggleMirror(it, id) } },
+                        onTextMode = { id, mode ->
+                            updateLayers { PanelLayers.setTextMode(it, id, mode) }
+                        },
+                        onSvgScale = { id, factor ->
+                            // SVG 的倍数体现在层的宽度上, 长宽等比
+                            val density = context.resources.displayMetrics.density
+                            val side = (100f * density * factor).toInt()
+                            updateLayers { PanelLayers.resize(it, id, side, side) }
                         }
                     )
                 }

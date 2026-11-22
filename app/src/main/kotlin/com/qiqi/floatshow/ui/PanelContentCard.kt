@@ -40,6 +40,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.qiqi.floatshow.R
 import com.qiqi.floatshow.data.PanelLayer
+import com.qiqi.floatshow.overlay.PanelContentSource
+import com.qiqi.floatshow.data.PanelTextMode
+import android.net.Uri
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.Slider
+import androidx.compose.material3.FilterChip
+import androidx.compose.material.icons.rounded.MoreVert
 import com.qiqi.floatshow.data.PanelLayerKind
 import com.qiqi.floatshow.data.PanelLayerPin
 import com.qiqi.floatshow.data.PanelLayers
@@ -60,6 +68,11 @@ fun PanelContentSection(
     onDelete: (String) -> Unit,
     onOpenLayer: (String) -> Unit,
     onRenameLayer: (String) -> Unit,
+    onRotateLeft: (String) -> Unit,
+    onRotateRight: (String) -> Unit,
+    onToggleMirror: (String) -> Unit,
+    onTextMode: (String, String) -> Unit,
+    onSvgScale: (String, Float) -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -76,7 +89,12 @@ fun PanelContentSection(
                 onToggleFixed = { onToggleFixed(layer.id) },
                 onDelete = { onDelete(layer.id) },
                 onOpen = { onOpenLayer(layer.id) },
-                onRename = { onRenameLayer(layer.id) }
+                onRename = { onRenameLayer(layer.id) },
+                onRotateLeft = { onRotateLeft(layer.id) },
+                onRotateRight = { onRotateRight(layer.id) },
+                onToggleMirror = { onToggleMirror(layer.id) },
+                onTextMode = { mode -> onTextMode(layer.id, mode) },
+                onSvgScale = { factor -> onSvgScale(layer.id, factor) }
             )
         }
 
@@ -108,7 +126,12 @@ private fun LayerRow(
     onToggleFixed: () -> Unit,
     onDelete: () -> Unit,
     onOpen: () -> Unit,
-    onRename: () -> Unit
+    onRename: () -> Unit,
+    onRotateLeft: () -> Unit,
+    onRotateRight: () -> Unit,
+    onToggleMirror: () -> Unit,
+    onTextMode: (String) -> Unit,
+    onSvgScale: (Float) -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -169,52 +192,183 @@ private fun LayerRow(
             highlighted = layer.fixed,
             onClick = onToggleFixed
         )
-        DeleteAction(layerName = layer.name, onDelete = onDelete)
+        MoreAction(
+            layer = layer,
+            onRotateLeft = onRotateLeft,
+            onRotateRight = onRotateRight,
+            onToggleMirror = onToggleMirror,
+            onTextMode = onTextMode,
+            onSvgScale = onSvgScale,
+            onDelete = onDelete
+        )
     }
 }
 
 /**
- * 删除: 平时就是错误色, 点一下先弹确认气泡再真删.
- * 用 DropdownMenu 当气泡是因为它跟着按钮走, 不会像对话框那样整屏遮挡.
+ * 更多: 点开一个浮动面板, 里面是这一层的预处理与删除.
+ * 删除放在最下面且是错误色, 需要二次确认.
+ * 固定(锚点为面板)的层不能预处理, 对应的控件直接不出现.
  */
 @Composable
-private fun DeleteAction(layerName: String, onDelete: () -> Unit) {
+private fun MoreAction(
+    layer: PanelLayer,
+    onRotateLeft: () -> Unit,
+    onRotateRight: () -> Unit,
+    onToggleMirror: () -> Unit,
+    onTextMode: (String) -> Unit,
+    onSvgScale: (Float) -> Unit,
+    onDelete: () -> Unit
+) {
+    var open by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
+    val canPre = !layer.fixed
     Box {
-        IconButton(onClick = { confirming = true }, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = { open = true }, modifier = Modifier.size(36.dp)) {
             Icon(
-                imageVector = Icons.Rounded.Delete,
-                contentDescription = stringResource(R.string.panel_layer_delete),
+                imageVector = Icons.Rounded.MoreVert,
+                contentDescription = stringResource(R.string.panel_layer_more),
                 modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.error
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        DropdownMenu(expanded = confirming, onDismissRequest = { confirming = false }) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text(
-                    text = stringResource(R.string.panel_delete_confirm),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Text(
-                    text = stringResource(R.string.panel_delete_confirm_desc, layerName),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
-                Row(
-                    modifier = Modifier.align(Alignment.End),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    TextButton(onClick = { confirming = false }) {
-                        Text(stringResource(R.string.action_cancel))
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            if (!confirming) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        text = stringResource(R.string.panel_more_title),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    if (layer.kind == PanelLayerKind.TEXT) {
+                        TextModeRow(layer.textMode, enabled = canPre, onChange = onTextMode)
+                    } else if (canPre) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            OrientButton(
+                                label = stringResource(R.string.panel_pre_mirror),
+                                active = layer.mirrored,
+                                onClick = onToggleMirror
+                            )
+                            OrientButton(
+                                label = stringResource(R.string.panel_pre_rotate_left),
+                                active = false,
+                                onClick = onRotateLeft
+                            )
+                            OrientButton(
+                                label = stringResource(R.string.panel_pre_rotate_right),
+                                active = false,
+                                onClick = onRotateRight
+                            )
+                        }
+                        if (PanelContentSource.isSvg(context = LocalContext.current,
+                                uri = Uri.parse(layer.content)) ) {
+                            SvgScaleRow(layer, onSvgScale)
+                        }
+                    } else {
+                        Text(
+                            text = stringResource(R.string.panel_pre_locked),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    TextButton(onClick = {
-                        confirming = false
-                        onDelete()
-                    }) { Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { confirming = true }) {
+                            Text(
+                                text = stringResource(R.string.action_delete),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            } else {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        text = stringResource(R.string.panel_delete_confirm),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = stringResource(R.string.panel_delete_confirm_desc, layer.name),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                    Row(
+                        modifier = Modifier.align(Alignment.End).padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        TextButton(onClick = { confirming = false }) {
+                            Text(stringResource(R.string.action_cancel))
+                        }
+                        TextButton(onClick = {
+                            confirming = false
+                            open = false
+                            onDelete()
+                        }) {
+                            Text(
+                                text = stringResource(R.string.action_delete),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun OrientButton(label: String, active: Boolean, onClick: () -> Unit) {
+    TextButton(onClick = onClick) {
+        Text(
+            text = label,
+            color = if (active) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun TextModeRow(
+    current: String,
+    enabled: Boolean,
+    onChange: (String) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FilterChip(
+            selected = current == PanelTextMode.PLAIN,
+            onClick = { if (enabled) onChange(PanelTextMode.PLAIN) },
+            enabled = enabled,
+            label = { Text(stringResource(R.string.panel_pre_plain)) }
+        )
+        FilterChip(
+            selected = current == PanelTextMode.MARKDOWN,
+            onClick = { if (enabled) onChange(PanelTextMode.MARKDOWN) },
+            enabled = enabled,
+            label = { Text(stringResource(R.string.panel_pre_markdown)) }
+        )
+    }
+}
+
+/** SVG 的显示倍数: 1..16 档, 改的是这一层在面板里的宽度 */
+@Composable
+private fun SvgScaleRow(layer: PanelLayer, onScale: (Float) -> Unit) {
+    val density = LocalDensity.current.density
+    val side = layer.width.toFloat().takeIf { it > 0 } ?: (100f * density)
+    val base = 100f * density
+    val current = (side / base).coerceIn(1f, 16f)
+    Column {
+        Text(
+            text = stringResource(R.string.panel_pre_scale) + " " + current.toInt() + "x",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Slider(
+            value = current,
+            onValueChange = { onScale(it) },
+            valueRange = 1f..16f
+        )
     }
 }
 

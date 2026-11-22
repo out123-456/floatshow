@@ -35,8 +35,10 @@ data class PanelLayer(
     val kind: PanelLayerKind,
     val content: String,
     val pin: PanelLayerPin = PanelLayerPin.NONE,
-    /** 锚点标签: true 表示这层被钉在某个坐标系里, 不参与拖动 */
+    /** 锚点标签: true 表示这层被钉在某个坐标系里, 不参与拖动与缩放 */
     val fixed: Boolean = false,
+    /** 锚点层 id; null 表示锚点就是面板本身 */
+    val anchorId: String? = null,
     /**
      * 面板内的位置与尺寸(像素, 相对面板左上角).
      * [width] 或 [height] <= 0 表示"还没定过" — 由渲染端按内容自身的天然尺寸填一次.
@@ -67,6 +69,7 @@ data class PanelLayer(
         put("content", content)
         put("pin", pin.name)
         put("fixed", fixed)
+        put("anchor", anchorId ?: "")
         put("x", x)
         put("y", y)
         put("w", width)
@@ -86,6 +89,7 @@ data class PanelLayer(
             pin = runCatching { PanelLayerPin.valueOf(json.optString("pin")) }
                 .getOrDefault(PanelLayerPin.NONE),
             fixed = json.optBoolean("fixed"),
+            anchorId = json.optString("anchor").ifBlank { null },
             x = json.optInt("x"),
             y = json.optInt("y"),
             width = json.optInt("w"),
@@ -128,6 +132,26 @@ object PanelLayers {
         addAll(layers.filter { it.pin == PanelLayerPin.NONE })
         addAll(layers.filter { it.pin == PanelLayerPin.TOP })
     }
+
+    /** 左旋一档(每次 90 度, 4 档循环) */
+    fun rotateLeft(layers: List<PanelLayer>, id: String): List<PanelLayer> =
+        layers.map { if (it.id == id) it.copy(rotation = (it.rotation + 3) and 3) else it }
+
+    fun rotateRight(layers: List<PanelLayer>, id: String): List<PanelLayer> =
+        layers.map { if (it.id == id) it.copy(rotation = (it.rotation + 1) and 3) else it }
+
+    fun toggleMirror(layers: List<PanelLayer>, id: String): List<PanelLayer> =
+        layers.map { if (it.id == id) it.copy(mirrored = !it.mirrored) else it }
+
+    fun setTextMode(layers: List<PanelLayer>, id: String, mode: String): List<PanelLayer> =
+        layers.map { if (it.id == id) it.copy(textMode = mode) else it }
+
+    /** 改了尺寸(面板里的像素) */
+    fun resize(layers: List<PanelLayer>, id: String, w: Int, h: Int): List<PanelLayer> =
+        layers.map { if (it.id == id) it.copy(width = w, height = h) else it }
+
+    fun move(layers: List<PanelLayer>, id: String, x: Int, y: Int): List<PanelLayer> =
+        layers.map { if (it.id == id) it.copy(x = x, y = y) else it }
 
     /** 该层现在能不能置顶: 已置底的层不能, 已经有别的层置顶时也不能; 已置顶时允许再次点击取消 */
     fun canPinTop(layers: List<PanelLayer>, id: String): Boolean {

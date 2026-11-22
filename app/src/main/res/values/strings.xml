@@ -167,4 +167,13 @@
     <string name="action_delete">删除</string>
     <string name="panel_delete_confirm">删除这一层?</string>
     <string name="panel_delete_confirm_desc">%1$s 会从列表移除, 无法恢复.</string>
+    <string name="panel_layer_more">更多</string>
+    <string name="panel_more_title">预处理与删除</string>
+    <string name="panel_pre_rotate_left">左旋</string>
+    <string name="panel_pre_rotate_right">右旋</string>
+    <string name="panel_pre_mirror">镜像</string>
+    <string name="panel_pre_plain">纯文本</string>
+    <string name="panel_pre_markdown">Markdown</string>
+    <string name="panel_pre_scale">显示倍数</string>
+    <string name="panel_pre_locked">已固定, 不能预处理</string>
 </resources>
