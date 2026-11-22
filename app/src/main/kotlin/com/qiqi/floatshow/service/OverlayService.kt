@@ -313,9 +313,39 @@ class OverlayService : Service() {
     // ── 屏幕计算 ────────────────────────────────────────────
 
     /**
-     * 整屏尺寸(物理像素). 用 display 的 real size 而不是 displayMetrics:
-     * 后者会随状态栏显隐变化, 导致准星在唤出状态栏后突然位移.
+     * 准星中心点.
+     *
+     * 坐标原点固定在物理屏幕左上角(窗口带 FLAG_LAYOUT_IN_SCREEN), 所以这里只按屏幕尺寸算,
+     * 与状态栏是否显示无关:
+     *  · 刘海模式: 相对整屏居中
+     *  · 非刘海模式: 相对"扣掉挖孔后的区域"居中(挖孔 inset 四边都可能非零)
+     * 横屏时用户看到的"水平/垂直"与设备自然方向互换, 所以偏移量也要跟着换.
      */
+    private fun crosshairCenter(screenWidth: Int, screenHeight: Int): Pair<Int, Int> {
+        val landscape = screenWidth > screenHeight
+        val insets = usableInsets()
+        val baseX: Int
+        val baseY: Int
+        if (landscape) {
+            baseX = if (settings.crosshairNotchMode) {
+                screenWidth / 2
+            } else {
+                insets.left + (screenWidth - insets.left - insets.right) / 2
+            }
+            baseY = screenHeight / 2
+        } else {
+            baseX = screenWidth / 2
+            baseY = if (settings.crosshairNotchMode) {
+                screenHeight / 2
+            } else {
+                insets.top + (screenHeight - insets.top) / 2
+            }
+        }
+        val offsetX = if (landscape) settings.crosshairOffsetY else settings.crosshairOffsetX
+        val offsetY = if (landscape) settings.crosshairOffsetX else settings.crosshairOffsetY
+        return (baseX + offsetX) to (baseY + offsetY)
+    }
+
     /**
      * 屏幕尺寸. 必须尊重 `wm size` 的覆盖值, 所以 getRealSize() 优先:
      * 它给的是逻辑 display 的当前尺寸, 覆盖后就是覆盖值.
