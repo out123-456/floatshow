@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Picture
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -210,10 +211,12 @@ class PanelContentView(context: Context) : View(context) {
             val w = layerBoxWidth(layer)
             val h = layerBoxHeight(layer)
             if (w <= 0f || h <= 0f) continue
-            pts[0] = layer.x; pts[1] = layer.y
-            pts[2] = layer.x + w; pts[3] = layer.y
-            pts[4] = layer.x; pts[5] = layer.y + h
-            pts[6] = layer.x + w; pts[7] = layer.y + h
+            val lx = layer.x.toFloat()
+            val ly = layer.y.toFloat()
+            pts[0] = lx; pts[1] = ly
+            pts[2] = lx + w; pts[3] = ly
+            pts[4] = lx; pts[5] = ly + h
+            pts[6] = lx + w; pts[7] = ly + h
             m.mapPoints(pts)
             val minX = minOf(pts[0], pts[2], pts[4], pts[6])
             val maxX = maxOf(pts[0], pts[2], pts[4], pts[6])
@@ -234,6 +237,7 @@ class PanelContentView(context: Context) : View(context) {
         val natural = naturalSize(layer, uri) ?: return
         val w = if (layer.width > 0) layer.width.toFloat() else natural.first
         val h = if (layer.height > 0) layer.height.toFloat() else natural.second
+        if (w <= 0f || h <= 0f) return
 
         canvas.save()
         // 以层矩形的中心为变换原点: 旋转与镜像都不会把内容甩到别处
@@ -242,44 +246,90 @@ class PanelContentView(context: Context) : View(context) {
         if (layer.mirrored) canvas.scale(-1f, 1f)
         canvas.translate(-w / 2f, -h / 2f)
 
-        // 把屏幕视口反变换回"层的本地坐标", 得到这一帧真正要画的那一块.
-        // 之前只从 (0,0) 读一块, 所以内容一移出左上角就是空白, 缩小后也只看到一角.
+        if (PanelContentSource.isSvg(context, uri)) {
+            val picture = svgPicture(layer, uri)
+            if (picture != null) canvas.drawPicture(picture, RectF(0f, 0f, w, h))
+            canvas.restore()
+            return
+        }
+
+        // 把屏幕视口反变换回"层的本地坐标", 得到这一帧真正要画的那一块
         val screenRect = RectF(0f, 0f, getWidth().toFloat(), getHeight().toFloat())
         val inverse = Matrix()
-        if (canvas.matrix.invert(inverse)) {
-            val local = RectF()
-            inverse.mapRect(local, screenRect)
-            val clipped = RectF(0f, 0f, w, h)
-            if (!clipped.intersect(local) || clipped.isEmpty) {
-                canvas.restore()
-                return
-            }
-            // 这一块在原图上的坐标(层里 1 档 = 原图 1 像素, 缩放后按比例换算)
-            val scaleX = if (w > 0f) natural.first / w else 1f
-            val scaleY = if (h > 0f) natural.second / h else 1f
-            val srcRect = Rect(
-                (clipped.left * scaleX).toInt().coerceIn(0, natural.first.toInt() - 1),
-                (clipped.top * scaleY).toInt().coerceIn(0, natural.second.toInt() - 1),
-                (clipped.right * scaleX).toInt().coerceIn(1, natural.first.toInt()),
-                (clipped.bottom * scaleY).toInt().coerceIn(1, natural.second.toInt())
-            )
-            if (srcRect.width() <= 0 || srcRect.height() <= 0) {
-                canvas.restore()
-                return
-            }
-            // 这块最终落在屏幕上的像素尺寸, 决定采样步长
-            val pixels = canvas.matrix.mapRadius(1f)
-            val targetW = (srcRect.width() * pixels).toInt().coerceAtLeast(1)
-            val step = (srcRect.width() / targetW.coerceAtLeast(1)).coerceAtLeast(1)
-
-            val entry = imageWindow(layer, uri, srcRect, step, natural)
-            if (entry == null) {
-                canvas.restore()
-                return
-            }
-            canvas.drawBitmap(entry.bitmap, null, clipped, imagePaint)
+        if (!canvas.matrix.invert(inverse)) {
+            canvas.restore()
+            return
         }
+        val local = RectF()
+        inverse.mapRect(local, screenRect)
+        val clipped = RectF(0f, 0f, w, h)
+        if (!clipped.intersect(local) || clipped.isEmpty) {
+            canvas.restore()
+            return
+        }
+
+        // 落到原图坐标
+        val scaleX = natural.first / w
+        val scaleY = natural.second / h
+        val srcRect = Rect(
+            (clipped.left * scaleX).toInt().coerceIn(0, natural.first.toInt() - 1),
+            (clipped.top * scaleY).toInt().coerceIn(0, natural.second.toInt() - 1),
+            (clipped.right * scaleX).toInt().coerceIn(1, natural.first.toInt()),
+            (clipped.bottom * scaleY).toInt().coerceIn(1, natural.second.toInt())
+        )
+        if (srcRect.width() <= 0 || srcRect.height() <= 0) {
+            canvas.restore()
+            return
+        }
+
+        // 采样步长按"这块在屏幕上占多少像素"决定
+        val pixels = canvas.matrix.mapRadius(1f)
+        val targetW = (srcRect.width() * pixels).toInt().coerceAtLeast(1)
+        val step = (srcRect.width() / targetW).coerceAtLeast(1)
+
+        // 取一块比 srcRect 更大的窗口(并按 WINDOW 对齐), 平移时就不会每帧重新解码.
+        // 之前直接按 srcRect 做缓存键, 内容一碰到视窗边界, 键每帧都在变, 就"刷新个没完"
+        val win = windowFor(srcRect, step, natural)
+        val entry = imageWindow(layer, uri, win, step)
+        val fallback = lastEntry[layer.id]
+        val use = entry ?: fallback
+        if (use == null || use.bitmap.isRecycled) {
+            canvas.restore()
+            return
+        }
+        // 把 srcRect 在窗口里的位置换算成位图里的取样矩形
+        val inBmp = Rect(
+            (srcRect.left - win.left) / step,
+            (srcRect.top - win.top) / step,
+            ((srcRect.right - win.left) / step).coerceAtLeast((srcRect.left - win.left) / step + 1),
+            ((srcRect.bottom - win.top) / step).coerceAtLeast((srcRect.top - win.top) / step + 1)
+        )
+        imagePaint.isFilterBitmap = true
+        canvas.drawBitmap(use.bitmap, inBmp, clipped, imagePaint)
         canvas.restore()
+    }
+
+    /** 缓存里按层记一块已解好的像素, 换窗口前先用它顶着, 不闪 */
+    private val lastEntry = HashMap<String, ImageEntry>()
+
+    /**
+     * 把 srcRect 向外扩一点, 并把左上角对齐到 [WINDOW] 的倍数.
+     * 这样内容在窗口内平移时键不变, 只有移出半个窗口才重新解码.
+     */
+    private fun windowFor(src: Rect, step: Int, natural: Pair<Float, Float>): Rect {
+        val maxW = natural.first.toInt()
+        val maxH = natural.second.toInt()
+        val pad = WINDOW / 2
+        val left = ((src.left - pad).coerceAtLeast(0) / WINDOW) * WINDOW
+        val top = ((src.top - pad).coerceAtLeast(0) / WINDOW) * WINDOW
+        val right = ((src.right + pad).coerceAtMost(maxW) / WINDOW + 1) * WINDOW
+        val bottom = ((src.bottom + pad).coerceAtMost(maxH) / WINDOW + 1) * WINDOW
+        return Rect(
+            left,
+            top,
+            right.coerceIn(left + WINDOW, maxW),
+            bottom.coerceIn(top + WINDOW, maxH)
+        )
     }
 
     /** 层的天然尺寸: 位图按原始像素, SVG 按 100dp 的一边 */
@@ -313,6 +363,26 @@ class PanelContentView(context: Context) : View(context) {
 
     private val naturalSizes = HashMap<String, Pair<Float, Float>>()
 
+    /** SVG 预渲染成 Picture, 矢量放缩不糊 */
+    private fun svgPicture(layer: PanelLayer, uri: Uri): Picture? {
+        svgPictures[layer.content]?.let { return it }
+        val doc = runCatching {
+            context.contentResolver.openInputStream(uri)?.use {
+                com.caverock.androidsvg.SVG.getFromInputStream(it)
+            }
+        }.getOrNull() ?: return null
+        val side = 1024
+        val pic = runCatching {
+            doc.setDocumentWidth(side.toFloat())
+            doc.setDocumentHeight(side.toFloat())
+            doc.renderToPicture(side, side)
+        }.getOrNull() ?: return null
+        svgPictures[layer.content] = pic
+        return pic
+    }
+
+    private val svgPictures = HashMap<String, Picture>()
+
     /** 一块已经解好的像素, 以及在位图里的取样矩形 */
     private class ImageEntry(val bitmap: Bitmap, val src: RectF)
 
@@ -324,18 +394,21 @@ class PanelContentView(context: Context) : View(context) {
         layer: PanelLayer,
         uri: Uri,
         srcRect: Rect,
-        step: Int,
-        natural: Pair<Float, Float>
+        step: Int
     ): ImageEntry? {
         val key = layer.content + "|" + srcRect.left + "," + srcRect.top + "," +
             srcRect.width() + "," + srcRect.height() + "|" + step
-        imageCache.get(key)?.let { if (!it.bitmap.isRecycled) return it }
+        imageCache.get(key)?.let {
+            if (!it.bitmap.isRecycled) {
+                lastEntry[layer.id] = it
+                return it
+            }
+        }
         if (pendingImage.add(key)) {
             val current = token
             executor.execute {
                 val (bmp, outW, outH) = PanelContentSource.loadRegion(
-                    context, uri, srcRect, step,
-                    natural.first.toInt(), natural.second.toInt()
+                    context, uri, srcRect, step
                 )
                 post {
                     pendingImage.remove(key)
@@ -344,7 +417,9 @@ class PanelContentView(context: Context) : View(context) {
                         return@post
                     }
                     if (bmp != null && outW > 0 && outH > 0) {
-                        imageCache.put(key, ImageEntry(bmp, RectF(0f, 0f, outW.toFloat(), outH.toFloat())))
+                        val entry = ImageEntry(bmp, RectF(0f, 0f, outW.toFloat(), outH.toFloat()))
+                        imageCache.put(key, entry)
+                        lastEntry[layer.id] = entry
                         invalidate()
                     }
                 }
@@ -415,6 +490,9 @@ class PanelContentView(context: Context) : View(context) {
     companion object {
         private const val MIN_SCALE = 0.1f
         private const val MAX_SCALE = 32f
+
+        /** 位图窗口粒度(原图像素). 越大重解码越少, 每次读的量也越大 */
+        private const val WINDOW = 256
     }
 }
 
@@ -438,9 +516,7 @@ object PanelContentSource {
         context: Context,
         uri: Uri,
         src: Rect,
-        step: Int,
-        naturalW: Int,
-        naturalH: Int
+        step: Int
     ): Triple<Bitmap?, Int, Int> {
         val raw = RawImage.fileFor(context, uri)
         if (raw.isFile && raw.length() > RawImage.HEADER) {
