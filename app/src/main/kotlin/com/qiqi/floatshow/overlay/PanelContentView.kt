@@ -5,7 +5,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.net.Uri
@@ -58,7 +60,6 @@ class PanelContentView(context: Context) : View(context) {
 
     /** 已打开的 raw 读取器, 按 uri 复用; 面板关掉时统一关 */
     private val readers = HashMap<String, RawReader>()
-    private val bitmaps = LruCache<String, Bitmap>(8)
     private val textLayouts = HashMap<String, Pair<StaticLayout, Int>>()
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -151,10 +152,42 @@ class PanelContentView(context: Context) : View(context) {
         if (layer.mirrored) canvas.scale(-1f, 1f)
         canvas.translate(-w / 2f, -h / 2f)
 
-        val bitmap = bitmapFor(layer, uri, w, h)
-        if (bitmap != null && !bitmap.isRecycled) {
-            dst.set(0f, 0f, w, h)
-            canvas.drawBitmap(bitmap, null, dst, imagePaint)
+        // 把屏幕视口反变换回"层的本地坐标", 得到这一帧真正要画的那一块.
+        // 之前只从 (0,0) 读一块, 所以内容一移出左上角就是空白, 缩小后也只看到一角.
+        val screenRect = RectF(0f, 0f, getWidth().toFloat(), getHeight().toFloat())
+        val inverse = Matrix()
+        if (canvas.matrix.invert(inverse)) {
+            val local = RectF()
+            inverse.mapRect(local, screenRect)
+            val clipped = RectF(0f, 0f, w, h)
+            if (!clipped.intersect(local) || clipped.isEmpty) {
+                canvas.restore()
+                return
+            }
+            // 这一块在原图上的坐标(层里 1 档 = 原图 1 像素, 缩放后按比例换算)
+            val scaleX = if (w > 0f) natural.first / w else 1f
+            val scaleY = if (h > 0f) natural.second / h else 1f
+            val srcRect = Rect(
+                (clipped.left * scaleX).toInt().coerceIn(0, natural.first.toInt() - 1),
+                (clipped.top * scaleY).toInt().coerceIn(0, natural.second.toInt() - 1),
+                (clipped.right * scaleX).toInt().coerceIn(1, natural.first.toInt()),
+                (clipped.bottom * scaleY).toInt().coerceIn(1, natural.second.toInt())
+            )
+            if (srcRect.width() <= 0 || srcRect.height() <= 0) {
+                canvas.restore()
+                return
+            }
+            // 这块最终落在屏幕上的像素尺寸, 决定采样步长
+            val pixels = canvas.matrix.mapRadius(1f)
+            val targetW = (srcRect.width() * pixels).toInt().coerceAtLeast(1)
+            val step = (srcRect.width() / targetW.coerceAtLeast(1)).coerceAtLeast(1)
+
+            val entry = imageWindow(layer, uri, srcRect, step, natural)
+            if (entry == null) {
+                canvas.restore()
+                return
+            }
+            canvas.drawBitmap(entry, entry.src, clipped, imagePaint)
         }
         canvas.restore()
     }
@@ -190,25 +223,38 @@ class PanelContentView(context: Context) : View(context) {
 
     private val naturalSizes = HashMap<String, Pair<Float, Float>>()
 
+    /** 一块已经解好的像素, 以及在位图里的取样矩形 */
+    private class ImageEntry(val bitmap: Bitmap, val src: RectF)
+
     /**
      * 取这一层要画的那块像素. 面板视窗有限, 所以永远只读"需要的那一块".
-     * 有 raw 走 mmap 读区; 没有的话, 小图整张解出来, 大图只能用降采样图顶着.
+     * 有 raw 走 mmap 按步长采样读区; 没有的话, 按目标尺寸降采样解码.
      */
-    private fun bitmapFor(layer: PanelLayer, uri: Uri, w: Float, h: Float): Bitmap? {
-        val cacheKey = layer.content
-        bitmaps.get(cacheKey)?.let { if (!it.isRecycled) return it }
-        if (pendingImage.add(cacheKey)) {
+    private fun imageWindow(
+        layer: PanelLayer,
+        uri: Uri,
+        srcRect: Rect,
+        step: Int,
+        natural: Pair<Float, Float>
+    ): ImageEntry? {
+        val key = layer.content + "|" + srcRect.left + "," + srcRect.top + "," +
+            srcRect.width() + "," + srcRect.height() + "|" + step
+        imageCache.get(key)?.let { if (!it.bitmap.isRecycled) return it }
+        if (pendingImage.add(key)) {
             val current = token
             executor.execute {
-                val loaded = PanelContentSource.load(context, uri, w.toInt(), h.toInt())
+                val (bmp, outW, outH) = PanelContentSource.loadRegion(
+                    context, uri, srcRect, step,
+                    natural.first.toInt(), natural.second.toInt()
+                )
                 post {
-                    pendingImage.remove(cacheKey)
+                    pendingImage.remove(key)
                     if (current != token) {
-                        loaded?.recycle()
+                        bmp?.recycle()
                         return@post
                     }
-                    if (loaded != null) {
-                        bitmaps.put(cacheKey, loaded)
+                    if (bmp != null && outW > 0 && outH > 0) {
+                        imageCache.put(key, ImageEntry(bmp, RectF(0f, 0f, outW.toFloat(), outH.toFloat())))
                         invalidate()
                     }
                 }
@@ -218,6 +264,13 @@ class PanelContentView(context: Context) : View(context) {
     }
 
     private val pendingImage = HashSet<String>()
+    private val imageCache = object : LruCache<String, ImageEntry>(8) {
+        override fun entryRemoved(
+            evicted: Boolean, key: String, oldValue: ImageEntry, newValue: ImageEntry?
+        ) {
+            if (!oldValue.bitmap.isRecycled) oldValue.bitmap.recycle()
+        }
+    }
 
     // ── 文本 ────────────────────────────────────────────────
 
@@ -251,7 +304,7 @@ class PanelContentView(context: Context) : View(context) {
 
     private fun dropCaches(before: List<PanelLayer>, after: List<PanelLayer>) {
         if (before == after) return
-        bitmaps.evictAll()
+        imageCache.evictAll()
         textLayouts.clear()
         // 不再被任何层引用的 raw 就不该继续开着
         val keep = after.map { it.content }.toSet()
@@ -262,7 +315,7 @@ class PanelContentView(context: Context) : View(context) {
 
     fun release() {
         token++
-        bitmaps.evictAll()
+        imageCache.evictAll()
         textLayouts.clear()
         readers.values.forEach { it.close() }
         readers.clear()
@@ -276,7 +329,7 @@ class PanelContentView(context: Context) : View(context) {
 }
 
 /**
- * 层内容的像素来源. 面板只需要"这一块", 所以永远按目标尺寸取, 不整图进内存.
+ * 层内容的像素来源. 面板只需要"这一块", 所以永远按目标矩形取, 不整图进内存.
  */
 object PanelContentSource {
 
@@ -287,38 +340,75 @@ object PanelContentSource {
     }
 
     /**
-     * 加载一层的位图. 有 raw 就按目标尺寸读一块并缩放; 没有就按目标尺寸降采样解码.
-     * 目标超过 [maxSide] 时按 [maxSide] 截断, 免得面板里出现几万像素宽的位图.
+     * 读 [src] 这块像素, 按 [step] 跳采样.
+     * 有 raw 走 mmap; 没有则按需要的那块解码(小图直接整张, 大图只能降采样).
+     * 返回 (位图, 宽, 高). 位图可能比 src 小(采样了), 画的时候拉伸回层矩形.
      */
-    fun load(context: Context, uri: Uri, targetW: Int, targetH: Int): Bitmap? {
-        val w = targetW.coerceAtLeast(1).coerceAtMost(MAX_SIDE)
-        val h = targetH.coerceAtLeast(1).coerceAtMost(MAX_SIDE)
-        return runCatching {
-            val raw = RawImage.fileFor(context, uri)
-            if (raw.isFile && raw.length() > RawImage.HEADER) {
-                RawReader(raw).use { reader ->
-                    val rw = min(reader.width, w)
-                    val rh = min(reader.height, h)
-                    val pixels = IntArray(rw * rh)
-                    reader.readRows(0, 0, rw, rh, pixels)
-                    Bitmap.createBitmap(pixels, rw, rh, Bitmap.Config.ARGB_8888)
-                }
-            } else {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                context.contentResolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it, null, bounds)
-                }
-                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
-                var sample = 1
-                while (bounds.outWidth / (sample * 2) >= w && bounds.outHeight / (sample * 2) >= h) {
-                    sample *= 2
-                }
-                val options = BitmapFactory.Options().apply { inSampleSize = sample }
-                context.contentResolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it, null, options)
-                }
+    fun loadRegion(
+        context: Context,
+        uri: Uri,
+        src: Rect,
+        step: Int,
+        naturalW: Int,
+        naturalH: Int
+    ): Triple<Bitmap?, Int, Int> {
+        val raw = RawImage.fileFor(context, uri)
+        if (raw.isFile && raw.length() > RawImage.HEADER) {
+            val reader = runCatching { RawReader(raw) }.getOrNull()
+                ?: return Triple(null, 0, 0)
+            return try {
+                val w = min(src.width(), reader.width - src.left).coerceAtLeast(1)
+                val h = min(src.height(), reader.height - src.top).coerceAtLeast(1)
+                val outW = (w + step - 1) / step
+                val outH = (h + step - 1) / step
+                val pixels = IntArray(outW * outH)
+                reader.readRegionScaled(src.left, src.top, w, h, step, pixels)
+                Triple(
+                    Bitmap.createBitmap(pixels, outW, outH, Bitmap.Config.ARGB_8888),
+                    outW,
+                    outH
+                )
+            } catch (e: Throwable) {
+                null to 0 to 0
+            } finally {
+                reader.close()
             }
-        }.getOrNull()
+        }
+
+        // 没有 raw: 只能整图解码一次再裁. 图越大越吃亏, 这正是要转 raw 的理由
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, bounds)
+            }
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return Triple(null, 0, 0)
+        val options = BitmapFactory.Options()
+        // 只解需要的分辨率: 目标就是 src 采样后的尺寸
+        var sample = 1
+        val outW = (src.width() + step - 1) / step
+        while (bounds.outWidth / (sample * 2) >= outW && sample * 2 < bounds.outWidth) sample *= 2
+        options.inSampleSize = sample
+        val full = runCatching {
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, options)
+            }
+        }.getOrNull() ?: return Triple(null, 0, 0)
+        val ratioX = full.width.toFloat() / bounds.outWidth
+        val ratioY = full.height.toFloat() / bounds.outHeight
+        val crop = Rect(
+            (src.left * ratioX).toInt().coerceIn(0, full.width - 1),
+            (src.top * ratioY).toInt().coerceIn(0, full.height - 1),
+            (src.right * ratioX).toInt().coerceIn(1, full.width),
+            (src.bottom * ratioY).toInt().coerceIn(1, full.height)
+        )
+        if (crop.width() <= 0 || crop.height() <= 0) {
+            full.recycle()
+            return Triple(null, 0, 0)
+        }
+        val cropped = Bitmap.createBitmap(full, crop.left, crop.top, crop.width(), crop.height())
+        if (cropped !== full) full.recycle()
+        return Triple(cropped, cropped.width, cropped.height)
     }
 
     private const val MAX_SIDE = 2048

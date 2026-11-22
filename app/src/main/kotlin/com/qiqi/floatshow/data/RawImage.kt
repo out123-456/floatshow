@@ -176,6 +176,32 @@ class RawReader(file: File) {
         }
     }
 
+    /**
+     * 按步长采样读一块. 缩小显示时可见的源区域可能远大于屏幕,
+     * 逐行整行读会把几百 MB 从映射里拷出来, 所以这里跳着取样.
+     */
+    fun readRegionScaled(x0: Int, y0: Int, w: Int, h: Int, step: Int, out: IntArray) {
+        val view = mapped.duplicate().order(ByteOrder.LITTLE_ENDIAN)
+        val outW = (w + step - 1) / step
+        val outH = (h + step - 1) / step
+        val strideBytes = width.toLong() * 4
+        for (oy in 0 until outH) {
+            val sy = y0 + oy * step
+            if (sy >= height) break
+            val rowBase = RawImage.HEADER + sy * strideBytes
+            val rowOut = oy * outW
+            for (ox in 0 until outW) {
+                val sx = x0 + ox * step
+                if (sx >= width) break
+                out[rowOut + ox] = view.getInt((rowBase + sx * 4L).toInt())
+            }
+        }
+    }
+
+    /** 采样后的目标宽高 */
+    fun scaledSize(w: Int, h: Int, step: Int): Pair<Int, Int> =
+        (w + step - 1) / step to (h + step - 1) / step
+
     fun close() {
         runCatching { channel.close() }
         runCatching { raf.close() }
