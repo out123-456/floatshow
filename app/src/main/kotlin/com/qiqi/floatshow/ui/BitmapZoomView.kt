@@ -427,7 +427,7 @@ class BitmapZoomView(context: Context) : View(context) {
         private const val FULL_PIXEL_LIMIT = 4096 * 4096
 
         /** 降采样整图的长边, 与抽屉预览一致 */
-        private const val OVERVIEW_SIDE = 1024
+        private const val OVERVIEW_SIDE = 2048
 
         /** 窗口比视口每边多出的像素, 拖动在这个范围内不重填 */
         private const val PAD = 128
