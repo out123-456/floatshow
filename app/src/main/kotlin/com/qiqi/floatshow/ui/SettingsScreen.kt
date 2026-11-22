@@ -173,10 +173,33 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
 
     // 层列表每次改动都整体写回, 只触发一次监听
     fun updateLayers(block: (List<PanelLayer>) -> List<PanelLayer>) {
-        val next = block(layers)
+        val before = layers
+        val next = block(before)
         if (next == layers) return
         layers = next
         settings.panelLayers = next
+        collectOrphanRaw(before, next)
+    }
+
+    /**
+     * 层没了(删除、替换内容)之后, 它的 raw 就成了孤儿. 留着只会白占上百 MB, 顺手删掉.
+     * 只删"上一版还在、这一版不再被任何层引用"的图片 uri.
+     */
+    fun collectOrphanRaw(before: List<PanelLayer>, after: List<PanelLayer>) {
+        val stillUsed = after.filter { it.kind == PanelLayerKind.IMAGE }
+            .map { it.content }.toSet()
+        val orphans = before.filter { it.kind == PanelLayerKind.IMAGE }
+            .map { it.content }
+            .filter { it !in stillUsed }
+        if (orphans.isEmpty()) return
+        val dropped = mutableSetOf<String>()
+        for (content in orphans) {
+            val uri = runCatching { Uri.parse(content) }.getOrNull() ?: continue
+            if (RawImage.exists(context, uri) && runCatching { RawImage.delete(context, uri) }.getOrDefault(false)) {
+                dropped += content
+            }
+        }
+        if (dropped.isNotEmpty()) rawReady = rawReady - dropped
     }
 
     /**

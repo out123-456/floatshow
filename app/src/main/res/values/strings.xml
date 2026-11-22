@@ -164,4 +164,7 @@
     <string name="panel_raw_failed">转换失败, 内存不足</string>
     <string name="panel_raw_deleted">已删除 Raw</string>
     <string name="action_convert">转换</string>
+    <string name="action_delete">删除</string>
+    <string name="panel_delete_confirm">删除这一层?</string>
+    <string name="panel_delete_confirm_desc">%1$s 会从列表移除, 无法恢复.</string>
 </resources>

@@ -26,6 +26,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -163,13 +169,52 @@ private fun LayerRow(
             highlighted = layer.fixed,
             onClick = onToggleFixed
         )
-        SmallAction(
-            icon = Icons.Rounded.Delete,
-            description = R.string.panel_layer_delete,
-            enabled = true,
-            highlighted = false,
-            onClick = onDelete
-        )
+        DeleteAction(layerName = layer.name, onDelete = onDelete)
+    }
+}
+
+/**
+ * 删除: 平时就是错误色, 点一下先弹确认气泡再真删.
+ * 用 DropdownMenu 当气泡是因为它跟着按钮走, 不会像对话框那样整屏遮挡.
+ */
+@Composable
+private fun DeleteAction(layerName: String, onDelete: () -> Unit) {
+    var confirming by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { confirming = true }, modifier = Modifier.size(36.dp)) {
+            Icon(
+                imageVector = Icons.Rounded.Delete,
+                contentDescription = stringResource(R.string.panel_layer_delete),
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.error
+            )
+        }
+        DropdownMenu(expanded = confirming, onDismissRequest = { confirming = false }) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text(
+                    text = stringResource(R.string.panel_delete_confirm),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = stringResource(R.string.panel_delete_confirm_desc, layerName),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+                Row(
+                    modifier = Modifier.align(Alignment.End),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    TextButton(onClick = { confirming = false }) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
+                    TextButton(onClick = {
+                        confirming = false
+                        onDelete()
+                    }) { Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error) }
+                }
+            }
+        }
     }
 }
 
