@@ -548,9 +548,9 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                             RawState.CONVERTED
                         else -> RawState.AVAILABLE
                     },
-                    onResetPosition = if (layer.anchorId != null) null else {
-                        { updateLayers { PanelLayers.resetPosition(it, id) } }
-                    },
+                    // 有父层也能重置: 位置操作本来就等价于"手动拖到初始点"
+                    onResetPosition = { updateLayers { PanelLayers.resetPosition(it, id) } },
+                    hasChildren = layers.any { it.anchorId == id },
                     onToggleRaw = {
                         val layerUri = Uri.parse(layer.content)
                         if (RawImage.exists(context, layerUri)) {

@@ -181,4 +181,8 @@
     <string name="panel_anchor_title">长按选择相对固定对象</string>
     <string name="panel_anchor_panel">面板本身(完全不动)</string>
     <string name="panel_anchor_clear">解除相对固定</string>
+    <string name="panel_layer_has_children">有固定层级, 请解散后删除</string>
+    <string name="panel_reset_confirm_anchor">重置位置将会导致固定层级跟随重置, 确定吗?</string>
+    <string name="panel_reset_confirm_plain">重置位置将会导致层级位置重置, 确定吗?</string>
+    <string name="action_ok">好的</string>
 </resources>

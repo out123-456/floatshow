@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -60,6 +61,8 @@ fun LayerSheet(
     rawState: RawState? = null,
     onToggleRaw: (() -> Unit)? = null,
     onResetPosition: (() -> Unit)? = null,
+    /** 这一层下面挂着别的层; 位置变动会带着它们一起动 */
+    hasChildren: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var svgScale by remember(layer.id) { mutableStateOf(1f) }
@@ -127,11 +130,36 @@ fun LayerSheet(
                 }) { Text(stringResource(R.string.panel_layer_sheet_delete)) }
             }
 
-            // 内容被拖出视窗后的兜底入口
-            if (onResetPosition != null) {
-                TextButton(onClick = onResetPosition) {
-                    Text(stringResource(R.string.panel_layer_reset_position))
-                }
+            // 内容被拖出视窗后的兜底入口.
+            // 按钮永远在: "有时有有时没有"在用户看来就是功能坏了.
+            // 位置操作一律二次确认 —— 它和手动拖到初始点等价, 只是省事
+            var resetConfirm by remember(layer.id) { mutableStateOf(false) }
+            TextButton(onClick = { resetConfirm = true }) {
+                Text(stringResource(R.string.panel_layer_reset_position))
+            }
+            if (resetConfirm) {
+                AlertDialog(
+                    onDismissRequest = { resetConfirm = false },
+                    text = {
+                        Text(
+                            stringResource(
+                                if (hasChildren) R.string.panel_reset_confirm_anchor
+                                else R.string.panel_reset_confirm_plain
+                            )
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            resetConfirm = false
+                            onResetPosition?.invoke()
+                        }) { Text(stringResource(R.string.action_confirm)) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { resetConfirm = false }) {
+                            Text(stringResource(R.string.action_cancel))
+                        }
+                    }
+                )
             }
 
             // SVG 倍数: 顶部按钮下面单独一行

@@ -203,6 +203,7 @@ private fun LayerRow(
         )
         MoreAction(
             layer = layer,
+            layers = layers,
             onRotateLeft = onRotateLeft,
             onRotateRight = onRotateRight,
             onToggleMirror = onToggleMirror,
@@ -221,6 +222,7 @@ private fun LayerRow(
 @Composable
 private fun MoreAction(
     layer: PanelLayer,
+    layers: List<PanelLayer>,
     onRotateLeft: () -> Unit,
     onRotateRight: () -> Unit,
     onToggleMirror: () -> Unit,
@@ -230,6 +232,7 @@ private fun MoreAction(
 ) {
     var open by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
+    var blocked by remember { mutableStateOf(false) }
     val canPre = !layer.fixed
     Box {
         IconButton(onClick = { open = true }, modifier = Modifier.size(36.dp)) {
@@ -241,7 +244,23 @@ private fun MoreAction(
             )
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            if (!confirming) {
+            if (blocked) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        text = stringResource(R.string.panel_layer_has_children),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = {
+                            blocked = false
+                            open = false
+                        }) { Text(stringResource(R.string.action_ok)) }
+                    }
+                }
+            } else if (!confirming) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text(
                         text = stringResource(R.string.panel_more_title),
@@ -279,14 +298,19 @@ private fun MoreAction(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    val hasChildren = PanelLayers.childrenOf(layers, layer.id).isNotEmpty()
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(onClick = { confirming = true }) {
+                        TextButton(onClick = {
+                            // 有固定层级的层不许删: 换成一条说明, 用户点"好的"关掉
+                            if (hasChildren) blocked = true else confirming = true
+                        }) {
                             Text(
                                 text = stringResource(R.string.action_delete),
-                                color = MaterialTheme.colorScheme.error
+                                color = if (hasChildren) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                else MaterialTheme.colorScheme.error
                             )
                         }
                     }

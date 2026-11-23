@@ -242,13 +242,11 @@ object PanelLayers {
      */
     fun resetPosition(layers: List<PanelLayer>, id: String): List<PanelLayer> {
         val target = layers.firstOrNull { it.id == id } ?: return layers
-        if (target.anchorId != null) return layers
         val dx = -target.x
         val dy = -target.y
+        // 它自己创建的锚点跟着挪, 并把位移广播给挂在它上面的层
         moveAnchor(layers, id, dx, dy)
-        return layers.map {
-            if (it.id == id) it.copy(x = 0, y = 0) else it
-        }
+        return layers.map { if (it.id == id) it.copy(x = 0, y = 0) else it }
     }
 
     /** 锚点层: anchorId 为 null 的那些(它们的锚点是面板) */
