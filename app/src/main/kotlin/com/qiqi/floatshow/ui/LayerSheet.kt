@@ -34,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -211,7 +210,6 @@ fun LayerSheet(
             if (layer.kind == PanelLayerKind.TEXT) {
                 // 文本编辑框自身可滚动, 抽屉不再套滚动, 免得两层滚动打架
                 // 失焦即写回: 抽屉关闭、点别处、切页都会触发
-                val focusManager = LocalFocusManager.current
                 OutlinedTextField(
                     value = text,
                     onValueChange = {

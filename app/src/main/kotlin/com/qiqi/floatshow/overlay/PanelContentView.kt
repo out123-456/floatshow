@@ -57,10 +57,19 @@ class PanelContentView(context: Context) : View(context) {
         color = Color.WHITE
         textSize = 14f * density
     }
-    private val dst = RectF()
-
     /** 已打开的 raw 读取器, 按 uri 复用; 面板关掉时统一关 */
     private val readers = HashMap<String, RawReader>()
+
+    /** 取(必要时打开并缓存)该 uri 的 raw 读取器 */
+    private fun readerFor(uri: Uri): RawReader? {
+        val key = uri.toString()
+        readers[key]?.let { return it }
+        val file = RawImage.fileFor(context, uri)
+        if (!file.isFile || file.length() <= RawImage.HEADER) return null
+        val reader = runCatching { RawReader(file) }.getOrNull() ?: return null
+        readers[key] = reader
+        return reader
+    }
     private val textLayouts = HashMap<String, Pair<StaticLayout, Int>>()
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -109,8 +118,30 @@ class PanelContentView(context: Context) : View(context) {
         invalidate()
     }
 
-    /** 当前一帧里一个可见的层都没有 */
-    fun nothingVisible(): Boolean = visibleIds.isEmpty() && layers.isNotEmpty()
+    /**
+     * 有没有任何一层的内容落在面板视窗里.
+     * 不用 visibleIds: 它只在 onDraw 里填, 展开那一刻还没画过, 恒为空 —— 那正是
+     * "每次展开都被重置"的原因. 这里按当前相机与层几何直接算.
+     */
+    fun hasVisibleContent(): Boolean {
+        if (layers.isEmpty()) return false
+        val vw = getWidth()
+        val vh = getHeight()
+        if (vw <= 0 || vh <= 0) return false
+        val abs = PanelLayers.absolutePositions(layers)
+        for (layer in layers) {
+            val (w, h) = layerSize(layer)
+            if (w <= 0f || h <= 0f) continue
+            val origin = if (layer.anchorId == null) (0 to 0) else (abs[layer.anchorId] ?: continue)
+            // 层左上角在屏幕上的位置
+            val sx = (origin.first + layer.x) * contentScale + contentOffsetX
+            val sy = (origin.second + layer.y) * contentScale + contentOffsetY
+            val sw = w * contentScale
+            val sh = h * contentScale
+            if (sx < vw && sx + sw > 0f && sy < vh && sy + sh > 0f) return true
+        }
+        return false
+    }
 
     /** 所有层都还在初始位置(偏移全为 0) */
     fun allLayersAtOrigin(): Boolean = layers.all { it.x == 0 && it.y == 0 }
@@ -299,8 +330,6 @@ class PanelContentView(context: Context) : View(context) {
     private fun drawImage(canvas: Canvas, layer: PanelLayer, w: Float, h: Float) {
         val uri = runCatching { Uri.parse(layer.content) }.getOrNull() ?: return
         val natural = naturalSize(layer, uri) ?: return
-
-
         if (PanelContentSource.isSvg(context, uri)) {
             val picture = svgPicture(layer, uri)
             if (picture != null) canvas.drawPicture(picture, RectF(0f, 0f, w, h))
@@ -341,23 +370,46 @@ class PanelContentView(context: Context) : View(context) {
         val entry = imageWindow(layer, uri, win, step)
         val use = entry ?: lastEntry[layer.id]
         if (use == null || use.bitmap.isRecycled) return
-        // 取样矩形要按 use 自己的窗口和步长算: 用旧位图顶替时若套新窗口, 位置会整体错开
+
+        // 只画 use 真正覆盖的那块原图区域.
+        // 用旧位图顶替时, 它的窗口和新窗口可能只重叠一部分; 若把整块 inBmp 铺到整块 clipped 上,
+        // 源与目标对应的原图范围不一致 —— 那就是"拖动时图片被拉伸变形"的原因.
+        val cover = Rect(
+            maxOf(srcRect.left, use.window.left),
+            maxOf(srcRect.top, use.window.top),
+            minOf(srcRect.right, use.window.right),
+            minOf(srcRect.bottom, use.window.bottom)
+        )
+        if (cover.width() <= 0 || cover.height() <= 0) return
+
+        // 取样矩形向外取整: 起点向下取整、终点向上取整, 保证覆盖完整, 不产生接缝
         val inBmp = Rect(
-            (srcRect.left - use.window.left) / use.step,
-            (srcRect.top - use.window.top) / use.step,
-            ((srcRect.right - use.window.left) / use.step)
-                .coerceAtLeast((srcRect.left - use.window.left) / use.step + 1),
-            ((srcRect.bottom - use.window.top) / use.step)
-                .coerceAtLeast((srcRect.top - use.window.top) / use.step + 1)
+            ((cover.left - use.window.left) / use.step).coerceAtLeast(0),
+            ((cover.top - use.window.top) / use.step).coerceAtLeast(0),
+            ceilDiv(cover.right - use.window.left, use.step),
+            ceilDiv(cover.bottom - use.window.top, use.step)
         ).apply {
             left = left.coerceIn(0, use.bitmap.width - 1)
             top = top.coerceIn(0, use.bitmap.height - 1)
             right = right.coerceIn(left + 1, use.bitmap.width)
             bottom = bottom.coerceIn(top + 1, use.bitmap.height)
         }
+        // 目标矩形必须严格对应取样矩形覆盖的原图范围, 否则还是会错位/拉伸
+        val natLeft = (use.window.left + inBmp.left * use.step).toFloat()
+        val natTop = (use.window.top + inBmp.top * use.step).toFloat()
+        val natRight = (use.window.left + inBmp.right * use.step).toFloat()
+        val natBottom = (use.window.top + inBmp.bottom * use.step).toFloat()
+        val dstRect = RectF(
+            natLeft / scaleX, natTop / scaleY,
+            natRight / scaleX, natBottom / scaleY
+        )
         imagePaint.isFilterBitmap = true
-        canvas.drawBitmap(use.bitmap, inBmp, clipped, imagePaint)
+        canvas.drawBitmap(use.bitmap, inBmp, dstRect, imagePaint)
     }
+
+    /** 向上取整的整数除法 */
+    private fun ceilDiv(value: Int, divisor: Int): Int =
+        if (value <= 0) 0 else (value + divisor - 1) / divisor
 
     /** 缓存里按层记一块已解好的像素, 换窗口前先用它顶着, 不闪 */
     private val lastEntry = HashMap<String, ImageEntry>()
@@ -384,7 +436,12 @@ class PanelContentView(context: Context) : View(context) {
 
     /** 层的天然尺寸: 位图按原始像素, SVG 按 100dp 的一边 */
     private fun naturalSize(layer: PanelLayer, uri: Uri): Pair<Float, Float>? {
-        val known = naturalSizes[layer.content]
+        val cacheKey = if (layer.kind == PanelLayerKind.TEXT) {
+            layer.id + ":" + layer.textMode + ":" + layer.content.hashCode()
+        } else {
+            layer.content
+        }
+        val known = naturalSizes[cacheKey]
         if (known != null) return known
         val t = when (layer.kind) {
             PanelLayerKind.IMAGE -> {
@@ -405,9 +462,13 @@ class PanelContentView(context: Context) : View(context) {
                     }
                 }
             }
-            else -> null
+            PanelLayerKind.TEXT -> {
+                // 文本的天然尺寸就是排版结果: 宽度按面板宽, 高度由行数决定
+                val layout = layoutFor(layer) ?: return null
+                layout.width.toFloat() to layout.height.toFloat()
+            }
         }
-        if (t != null) naturalSizes[layer.content] = t
+        if (t != null) naturalSizes[cacheKey] = t
         return t
     }
 
@@ -496,7 +557,7 @@ class PanelContentView(context: Context) : View(context) {
     private fun layoutFor(layer: PanelLayer): StaticLayout? {
         val key = layer.id + ":" + layer.textMode + ":" + (layer.width) + ":" + layer.content.hashCode()
         textLayouts[key]?.let { return it.first }
-        val width = if (layer.width > 0) layer.width else (this.width.takeIf { it > 0 } ?: 300)
+        val width = if (layer.width > 0) layer.width else DEFAULT_TEXT_WIDTH
         val text: CharSequence = if (layer.textMode == PanelTextMode.MARKDOWN) {
             MarkdownLite.render(layer.content, textPaint.textSize)
         } else {
@@ -515,17 +576,17 @@ class PanelContentView(context: Context) : View(context) {
         if (before == after) return
         imageCache.evictAll()
         textLayouts.clear()
-        // 不再被任何层引用的 raw 就不该继续开着
-        val keep = after.map { it.content }.toSet()
-        val stale = readers.keys.filter { it !in keep }
-        stale.forEach { key -> readers.remove(key)?.close() }
+        lastEntry.clear()
         pendingImage.clear()
+        naturalSizes.clear()
+        svgPictures.clear()
     }
 
     fun release() {
         token++
         imageCache.evictAll()
         textLayouts.clear()
+        lastEntry.clear()
         readers.values.forEach { it.close() }
         readers.clear()
         executor.shutdownNow()
@@ -534,6 +595,9 @@ class PanelContentView(context: Context) : View(context) {
     companion object {
         private const val MIN_SCALE = 0.1f
         private const val MAX_SCALE = 32f
+
+        /** 文本层未定尺寸时的初始排版宽度(像素) */
+        private const val DEFAULT_TEXT_WIDTH = 480
 
         /** 位图窗口粒度(原图像素). 越大重解码越少, 每次读的量也越大 */
         private const val WINDOW = 256
@@ -559,6 +623,8 @@ object PanelContentSource {
     fun loadRegion(context: Context, uri: Uri, src: Rect, step: Int): Bitmap? {
         val raw = RawImage.fileFor(context, uri)
         if (raw.isFile && raw.length() > RawImage.HEADER) {
+            // 这里仍各自开一个: loadRegion 在后台线程调用, 而 readers 由 UI 线程管理,
+            // 共用同一个 MappedByteBuffer 会有并发问题. mmap 本身很便宜, 关掉即释放
             val reader = runCatching { RawReader(raw) }.getOrNull() ?: return null
             return try {
                 val w = (src.width().coerceAtMost(reader.width - src.left)).coerceAtLeast(1)

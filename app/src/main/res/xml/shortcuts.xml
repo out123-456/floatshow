@@ -7,7 +7,7 @@
         android:shortcutLongLabel="@string/shortcut_long_label"
         android:shortcutShortLabel="@string/shortcut_short_label">
         <intent
-            android:action="android.intent.action.MAIN"
+            android:action="com.qiqi.floatshow.action.TOGGLE_CROSSHAIR"
             android:targetClass="com.qiqi.floatshow.MainActivity"
             android:targetPackage="com.qiqi.floatshow" />
     </shortcut>

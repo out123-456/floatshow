@@ -1,11 +1,11 @@
 package com.qiqi.floatshow.ui
 
+import com.qiqi.floatshow.ui.icons.AppIcons
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import android.Manifest
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -22,10 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.core.app.NotificationManagerCompat
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -75,12 +71,13 @@ import com.qiqi.floatshow.data.PanelLayerKind
 import com.qiqi.floatshow.data.PanelLayers
 import com.qiqi.floatshow.data.SettingsRepository
 import com.qiqi.floatshow.service.OverlayService
+import com.qiqi.floatshow.service.OverlayTileService
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onOpenLab: () -> Unit = {}) {
+fun SettingsScreen() {
     val context = LocalContext.current
     val settings = remember { SettingsRepository(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -138,11 +135,6 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
         }
         settings.prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { settings.prefs.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-
-    // 用可调试标记代替 BuildConfig: 不生成 Java 源, 也就不触发 JdkImageTransform
-    val debuggable = remember(context) {
-        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     }
 
     // 跟着配置走, 旋转后偏移范围自动更新
@@ -352,21 +344,12 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 windowInsets = WindowInsets(0, 0, 0, 0),
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
-                    // 设计预览页只在 debug 里留入口, 之后会删
-                    if (debuggable) {
-                        IconButton(onClick = onOpenLab) {
-                            Icon(
-                                imageVector = Icons.Filled.Palette,
-                                contentDescription = stringResource(R.string.lab_open)
-                            )
-                        }
-                    }
                     // 服务在跑就是红色"关停", 停止时是强调色"启动"
                     IconButton(onClick = {
                         if (serviceRunning) OverlayService.stop(context) else OverlayService.start(context)
                     }) {
                         Icon(
-                            imageVector = if (serviceRunning) Icons.Rounded.Close else Icons.Rounded.PlayArrow,
+                            imageVector = if (serviceRunning) AppIcons.Close else AppIcons.PlayArrow,
                             contentDescription = stringResource(
                                 if (serviceRunning) R.string.action_close_service
                                 else R.string.action_start_service
@@ -423,6 +406,8 @@ fun SettingsScreen(onOpenLab: () -> Unit = {}) {
                 onEnabledChange = {
                     crosshairEnabled = it
                     settings.crosshairEnabled = it
+                    // 磁贴不会自动知道这里改了, 显式请求它刷新一次
+                    OverlayTileService.refresh(context)
                 },
                 hasImage = hasImage,
                 onPickImage = { imagePicker.launch(arrayOf("image/*")) },

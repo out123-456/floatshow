@@ -510,9 +510,11 @@ class PanelWindow(
         removeBallWindow()
         expanded = true
         showPanelWindow(geometry)
-        // 视窗里什么都没有, 而层都还在初始位置: 说明是相机被拖走了, 展开时归位
-        contentView?.let { view ->
-            if (view.nothingVisible() && view.allLayersAtOrigin()) {
+        // 视窗里确实看不到任何内容时才归位. 必须等一帧: 刚 addView 时视图还没有尺寸,
+        // 过早判断会把它当成"看不见"而每次展开都重置
+        contentView?.post {
+            val view = contentView ?: return@post
+            if (!view.hasVisibleContent()) {
                 view.resetCamera()
                 view.alignBackgroundToViewport()
             }
@@ -571,7 +573,7 @@ class PanelWindow(
 
     /** DOWN 是否落在最小化/关闭按钮上: 用屏幕坐标比对, 不依赖布局层级 */
     private fun hitsBarButton(event: MotionEvent): Boolean {
-        val targets = listOf(minimizeView, closeView)
+        val targets = listOf(resetView, minimizeView, closeView)
         val loc = IntArray(2)
         for (target in targets) {
             val t = target ?: continue

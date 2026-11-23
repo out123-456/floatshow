@@ -1,5 +1,6 @@
 package com.qiqi.floatshow.ui
 
+import com.qiqi.floatshow.ui.icons.AppIcons
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.DropdownMenuItem
@@ -10,16 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ArrowDownward
-import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.Notes
-import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material.icons.rounded.VerticalAlignBottom
-import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material3.Card
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -50,7 +41,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.Slider
 import androidx.compose.material3.FilterChip
-import androidx.compose.material.icons.rounded.MoreVert
 import com.qiqi.floatshow.data.PanelLayerKind
 import com.qiqi.floatshow.data.PanelLayerPin
 import com.qiqi.floatshow.data.PanelLayers
@@ -108,7 +98,7 @@ fun PanelContentSection(
             onClick = onImportLayer,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Icon(imageVector = Icons.Rounded.Add, contentDescription = null)
+            Icon(imageVector = AppIcons.Add, contentDescription = null)
             Text(
                 text = stringResource(
                     if (layers.isEmpty()) R.string.panel_import_background
@@ -168,28 +158,28 @@ private fun LayerRow(
         )
 
         SmallAction(
-            icon = Icons.Rounded.ArrowUpward,
+            icon = AppIcons.ArrowUpward,
             description = R.string.panel_layer_move_up,
             enabled = PanelLayers.canMoveUp(layers, layer.id),
             highlighted = false,
             onClick = onMoveUp
         )
         SmallAction(
-            icon = Icons.Rounded.ArrowDownward,
+            icon = AppIcons.ArrowDownward,
             description = R.string.panel_layer_move_down,
             enabled = PanelLayers.canMoveDown(layers, layer.id),
             highlighted = false,
             onClick = onMoveDown
         )
         SmallAction(
-            icon = Icons.Rounded.VerticalAlignTop,
+            icon = AppIcons.VerticalAlignTop,
             description = R.string.panel_layer_pin_top,
             enabled = PanelLayers.canPinTop(layers, layer.id),
             highlighted = layer.pin == PanelLayerPin.TOP,
             onClick = onToggleTop
         )
         SmallAction(
-            icon = Icons.Rounded.VerticalAlignBottom,
+            icon = AppIcons.VerticalAlignBottom,
             description = R.string.panel_layer_pin_bottom,
             enabled = PanelLayers.canPinBottom(layers, layer.id),
             highlighted = layer.pin == PanelLayerPin.BOTTOM,
@@ -238,7 +228,7 @@ private fun FixedAction(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Rounded.PushPin,
+                imageVector = AppIcons.PushPin,
                 contentDescription = stringResource(R.string.panel_layer_fixed),
                 modifier = Modifier.size(20.dp),
                 tint = if (layer.fixed) MaterialTheme.colorScheme.primary
@@ -314,7 +304,7 @@ private fun MoreAction(
     Box {
         IconButton(onClick = { open = true }, modifier = Modifier.size(36.dp)) {
             Icon(
-                imageVector = Icons.Rounded.MoreVert,
+                imageVector = AppIcons.MoreVert,
                 contentDescription = stringResource(R.string.panel_layer_more),
                 modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -550,6 +540,6 @@ fun FontCard(
 
 @Composable
 fun PanelLayerKind.icon(): ImageVector = when (this) {
-    PanelLayerKind.IMAGE -> Icons.Rounded.Image
-    PanelLayerKind.TEXT -> Icons.Rounded.Notes
+    PanelLayerKind.IMAGE -> AppIcons.Image
+    PanelLayerKind.TEXT -> AppIcons.Notes
 }

@@ -86,11 +86,15 @@ fun CrosshairSettingsCard(
                     )
                 },
                 supportingContent = {
-                    Text(
-                        text = stringResource(R.string.section_crosshair_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    // 描述为空时整行不渲染, 否则会留一段空白
+                    val desc = stringResource(R.string.section_crosshair_desc)
+                    if (desc.isNotEmpty()) {
+                        Text(
+                            text = desc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 },
                 trailingContent = {
                     Switch(checked = enabled, onCheckedChange = onEnabledChange)

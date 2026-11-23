@@ -2,6 +2,7 @@ package com.qiqi.floatshow
 
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -19,7 +20,8 @@ import com.qiqi.floatshow.data.SettingsRepository
 import com.qiqi.floatshow.text.FontLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import com.qiqi.floatshow.ui.DesignLabScreen
+import com.qiqi.floatshow.service.OverlayService
+import com.qiqi.floatshow.service.OverlayTileService
 import com.qiqi.floatshow.ui.SettingsScreen
 import com.qiqi.floatshow.ui.theme.FloatshowTheme
 
@@ -32,6 +34,20 @@ class MainActivity : ComponentActivity() {
      * 全屏隐藏状态栏. 用 BEHAVIOR_DEFAULT 而不是"下滑临时显示":
      * 后者会让状态栏在摸到屏幕顶部时闪回来, 与"全程全屏"的意图冲突.
      */
+    /**
+     * 快捷方式直接开关准星. 写完设置就要把服务拉起来, 否则改了也不生效.
+     */
+    private fun toggleCrosshairFromShortcut() {
+        val settings = SettingsRepository(this)
+        val next = !settings.crosshairEnabled
+        settings.crosshairEnabled = next
+        // 磁贴在别的进程里不知道这里改了, 主动让它刷新
+        OverlayTileService.refresh(this)
+        if (settings.anyOverlayEnabled && Settings.canDrawOverlays(this)) {
+            OverlayService.start(this)
+        }
+    }
+
     private fun hideStatusBar() {
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.statusBars())
@@ -47,6 +63,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 桌面长按图标的快捷方式: 只翻转准星, 不打开界面
+        if (intent?.action == ACTION_TOGGLE_CROSSHAIR) {
+            toggleCrosshairFromShortcut()
+            finish()
+            return
+        }
         enableEdgeToEdge()
         // 主界面全屏: 隐藏状态栏, 并允许内容画进挖孔区.
         // 下滑可临时唤出状态栏, 它是系统提供的行为, 不是本应用自绘.
@@ -77,13 +99,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
             FloatshowTheme(fontFamily = fontFamily) {
-                var showLab by remember { mutableStateOf(false) }
-                if (showLab) {
-                    DesignLabScreen(onBack = { showLab = false })
-                } else {
-                    SettingsScreen(onOpenLab = { showLab = true })
-                }
+                SettingsScreen()
             }
         }
+    }
+
+    companion object {
+        /** 桌面快捷方式用: 只翻转准星, 不进界面 */
+        const val ACTION_TOGGLE_CROSSHAIR = "com.qiqi.floatshow.action.TOGGLE_CROSSHAIR"
     }
 }
