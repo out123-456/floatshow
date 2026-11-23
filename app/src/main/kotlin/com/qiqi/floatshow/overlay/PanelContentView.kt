@@ -147,24 +147,36 @@ class PanelContentView(context: Context) : View(context) {
     private var ignoreGesture = false
 
     /** 面板尺寸变化时不需要做任何事: 内容坐标是绝对的, 不随视窗拉伸 */
+    /**
+     * 手势模式一旦定下来就锁到手指全部抬起为止.
+     * 以前是每帧看 isInProgress 再决定喂给谁, 而双指刚按下时它还是 false:
+     * 那一瞬拖动先跑了, 等缩放接管, 偏移已经被改过 —— 表现就是"突然偏移 + 闪".
+     */
+    private enum class GestureMode { NONE, DRAG, SCALE }
+    private var gestureMode = GestureMode.NONE
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-            ignoreGesture = hitFixedLayer(event.x, event.y)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                ignoreGesture = hitFixedLayer(event.x, event.y)
+                gestureMode = if (ignoreGesture) GestureMode.NONE else GestureMode.DRAG
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (!ignoreGesture) gestureMode = GestureMode.SCALE
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                ignoreGesture = false
+                gestureMode = GestureMode.NONE
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                // 还剩两指以上时继续缩放; 只剩一指就锁死, 不再退回拖动
+                if (event.pointerCount <= 2) gestureMode = GestureMode.NONE
+            }
         }
-        if (ignoreGesture) {
-            if (event.actionMasked == MotionEvent.ACTION_UP ||
-                event.actionMasked == MotionEvent.ACTION_CANCEL
-            ) ignoreGesture = false
-            return true
-        }
-        // 双指缩放优先级高于拖动
+        if (ignoreGesture) return true
+
         scaleDetector.onTouchEvent(event)
-        if (!scaleDetector.isInProgress) gestureDetector.onTouchEvent(event)
-        if (event.actionMasked == MotionEvent.ACTION_UP ||
-            event.actionMasked == MotionEvent.ACTION_CANCEL
-        ) {
-            scaleDetector.onTouchEvent(event)
-        }
+        if (gestureMode == GestureMode.DRAG) gestureDetector.onTouchEvent(event)
         return true
     }
 
@@ -316,24 +328,33 @@ class PanelContentView(context: Context) : View(context) {
         if (srcRect.width() <= 0 || srcRect.height() <= 0) return
 
         // 采样步长按"这块在屏幕上占多少像素"决定
+        // 采样步长只取 2 的幂: 连续取整会在临界点反复跳变, 而 step 参与缓存键,
+        // 一跳就换键, 于是每帧都重新解码, 画面就闪
         val pixels = canvas.matrix.mapRadius(1f)
         val targetW = (srcRect.width() * pixels).toInt().coerceAtLeast(1)
-        val step = (srcRect.width() / targetW).coerceAtLeast(1)
+        var step = 1
+        while (step * 2 <= srcRect.width() / targetW) step *= 2
 
         // 取一块比 srcRect 更大的窗口(并按 WINDOW 对齐), 平移时就不会每帧重新解码.
         // 之前直接按 srcRect 做缓存键, 内容一碰到视窗边界, 键每帧都在变, 就"刷新个没完"
         val win = windowFor(srcRect, step, natural)
         val entry = imageWindow(layer, uri, win, step)
-        val fallback = lastEntry[layer.id]
-        val use = entry ?: fallback
+        val use = entry ?: lastEntry[layer.id]
         if (use == null || use.bitmap.isRecycled) return
-        // 把 srcRect 在窗口里的位置换算成位图里的取样矩形
+        // 取样矩形要按 use 自己的窗口和步长算: 用旧位图顶替时若套新窗口, 位置会整体错开
         val inBmp = Rect(
-            (srcRect.left - win.left) / step,
-            (srcRect.top - win.top) / step,
-            ((srcRect.right - win.left) / step).coerceAtLeast((srcRect.left - win.left) / step + 1),
-            ((srcRect.bottom - win.top) / step).coerceAtLeast((srcRect.top - win.top) / step + 1)
-        )
+            (srcRect.left - use.window.left) / use.step,
+            (srcRect.top - use.window.top) / use.step,
+            ((srcRect.right - use.window.left) / use.step)
+                .coerceAtLeast((srcRect.left - use.window.left) / use.step + 1),
+            ((srcRect.bottom - use.window.top) / use.step)
+                .coerceAtLeast((srcRect.top - use.window.top) / use.step + 1)
+        ).apply {
+            left = left.coerceIn(0, use.bitmap.width - 1)
+            top = top.coerceIn(0, use.bitmap.height - 1)
+            right = right.coerceIn(left + 1, use.bitmap.width)
+            bottom = bottom.coerceIn(top + 1, use.bitmap.height)
+        }
         imagePaint.isFilterBitmap = true
         canvas.drawBitmap(use.bitmap, inBmp, clipped, imagePaint)
     }
@@ -413,7 +434,7 @@ class PanelContentView(context: Context) : View(context) {
     private val svgPictures = HashMap<String, Picture>()
 
     /** 一块已经解好的像素, 以及在位图里的取样矩形 */
-    private class ImageEntry(val bitmap: Bitmap, val src: RectF)
+    private class ImageEntry(val bitmap: Bitmap, val window: Rect, val step: Int)
 
     /**
      * 取这一层要画的那块像素. 面板视窗有限, 所以永远只读"需要的那一块".
@@ -436,17 +457,15 @@ class PanelContentView(context: Context) : View(context) {
         if (pendingImage.add(key)) {
             val current = token
             executor.execute {
-                val (bmp, outW, outH) = PanelContentSource.loadRegion(
-                    context, uri, srcRect, step
-                )
+                val bmp = PanelContentSource.loadRegion(context, uri, srcRect, step)
                 post {
                     pendingImage.remove(key)
                     if (current != token) {
                         bmp?.recycle()
                         return@post
                     }
-                    if (bmp != null && outW > 0 && outH > 0) {
-                        val entry = ImageEntry(bmp, RectF(0f, 0f, outW.toFloat(), outH.toFloat()))
+                    if (bmp != null) {
+                        val entry = ImageEntry(bmp, Rect(srcRect), step)
                         imageCache.put(key, entry)
                         lastEntry[layer.id] = entry
                         invalidate()
@@ -537,30 +556,20 @@ object PanelContentSource {
      * 有 raw 走 mmap; 没有则按需要的那块解码(小图直接整张, 大图只能降采样).
      * 返回 (位图, 宽, 高). 位图可能比 src 小(采样了), 画的时候拉伸回层矩形.
      */
-    fun loadRegion(
-        context: Context,
-        uri: Uri,
-        src: Rect,
-        step: Int
-    ): Triple<Bitmap?, Int, Int> {
+    fun loadRegion(context: Context, uri: Uri, src: Rect, step: Int): Bitmap? {
         val raw = RawImage.fileFor(context, uri)
         if (raw.isFile && raw.length() > RawImage.HEADER) {
-            val reader = runCatching { RawReader(raw) }.getOrNull()
-                ?: return Triple(null, 0, 0)
+            val reader = runCatching { RawReader(raw) }.getOrNull() ?: return null
             return try {
-                val w = min(src.width(), reader.width - src.left).coerceAtLeast(1)
-                val h = min(src.height(), reader.height - src.top).coerceAtLeast(1)
+                val w = (src.width().coerceAtMost(reader.width - src.left)).coerceAtLeast(1)
+                val h = (src.height().coerceAtMost(reader.height - src.top)).coerceAtLeast(1)
                 val outW = (w + step - 1) / step
                 val outH = (h + step - 1) / step
                 val pixels = IntArray(outW * outH)
                 reader.readRegionScaled(src.left, src.top, w, h, step, pixels)
-                Triple(
-                    Bitmap.createBitmap(pixels, outW, outH, Bitmap.Config.ARGB_8888),
-                    outW,
-                    outH
-                )
+                Bitmap.createBitmap(pixels, outW, outH, Bitmap.Config.ARGB_8888)
             } catch (e: Throwable) {
-                Triple(null, 0, 0)
+                null
             } finally {
                 reader.close()
             }
@@ -573,18 +582,16 @@ object PanelContentSource {
                 BitmapFactory.decodeStream(it, null, bounds)
             }
         }
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return Triple(null, 0, 0)
-        val options = BitmapFactory.Options()
-        // 只解需要的分辨率: 目标就是 src 采样后的尺寸
-        var sample = 1
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         val outW = (src.width() + step - 1) / step
+        var sample = 1
         while (bounds.outWidth / (sample * 2) >= outW && sample * 2 < bounds.outWidth) sample *= 2
-        options.inSampleSize = sample
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
         val full = runCatching {
             context.contentResolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, options)
             }
-        }.getOrNull() ?: return Triple(null, 0, 0)
+        }.getOrNull() ?: return null
         val ratioX = full.width.toFloat() / bounds.outWidth
         val ratioY = full.height.toFloat() / bounds.outHeight
         val crop = Rect(
@@ -595,11 +602,11 @@ object PanelContentSource {
         )
         if (crop.width() <= 0 || crop.height() <= 0) {
             full.recycle()
-            return Triple(null, 0, 0)
+            return null
         }
         val cropped = Bitmap.createBitmap(full, crop.left, crop.top, crop.width(), crop.height())
         if (cropped !== full) full.recycle()
-        return Triple(cropped, cropped.width, cropped.height)
+        return cropped
     }
 
     private const val MAX_SIDE = 2048
