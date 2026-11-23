@@ -288,6 +288,10 @@ class OverlayService : Service() {
             controlSizePx = controlPx,
             minSizePx = minPx,
             initialLayers = settings.panelLayers,
+            onLayersPersist = { changed ->
+                // 内容区自己改了层(例如自动对齐背景层), 交回主界面同一份存储
+                settings.panelLayers = changed
+            },
             onState = { state ->
                 settings.editing {
                     putBoolean(SettingsRepository.KEY_PANEL_EXPANDED, state.expanded)

@@ -109,6 +109,31 @@ class PanelContentView(context: Context) : View(context) {
         invalidate()
     }
 
+    /** 当前一帧里一个可见的层都没有 */
+    fun nothingVisible(): Boolean = visibleIds.isEmpty() && layers.isNotEmpty()
+
+    /** 所有层都还在初始位置(偏移全为 0) */
+    fun allLayersAtOrigin(): Boolean = layers.all { it.x == 0 && it.y == 0 }
+
+    /**
+     * 把顺序最底的那一层(背景层)放到视窗左上角: 它的偏移归零.
+     * 只挪这一层, 它创建的锚点跟着走, 挂在它上面的层一起移动.
+     */
+    fun alignBackgroundToViewport() {
+        val order = PanelLayers.renderOrder(layers)
+        val background = order.firstOrNull { it.anchorId == null } ?: return
+        if (background.x == 0 && background.y == 0) return
+        val dx = -background.x
+        val dy = -background.y
+        layers = PanelLayers.moveAnchor(layers, background.id, dx, dy)
+            .map { if (it.id == background.id) it.copy(x = 0, y = 0) else it }
+        onLayersChanged?.invoke(layers)
+        invalidate()
+    }
+
+    /** 层被内容区改动了(例如自动对齐背景层), 交回给 Service 持久化 */
+    var onLayersChanged: ((List<PanelLayer>) -> Unit)? = null
+
     fun setLayers(next: List<PanelLayer>) {
         val before = layers
         if (before == next) return
@@ -171,7 +196,12 @@ class PanelContentView(context: Context) : View(context) {
         if (layer.width > 0 && layer.height > 0) {
             return layer.width.toFloat() to layer.height.toFloat()
         }
-        return naturalSizes[layer.content] ?: (0f to 0f)
+        // 没定过尺寸就用天然尺寸. 这里必须走网络外的直接查询:
+        // 以前查的是 naturalSizes 缓存, 而那张表只在 drawImage 里填,
+        // 形成"要尺寸才画 -> 要画才填尺寸"的循环, 结果一层都画不出来.
+        val uri = runCatching { Uri.parse(layer.content) }.getOrNull() ?: return 0f to 0f
+        val natural = naturalSize(layer, uri) ?: return 0f to 0f
+        return natural
     }
 
     /** 旋转 90/270 后包围盒的宽高互换 */

@@ -52,6 +52,7 @@ class PanelWindow(
     private val controlSizePx: Int,
     private val minSizePx: Int,
     private val initialLayers: List<com.qiqi.floatshow.data.PanelLayer> = emptyList(),
+    private val onLayersPersist: (List<com.qiqi.floatshow.data.PanelLayer>) -> Unit = {},
     private val onState: (PanelState) -> Unit,
     private val onClose: () -> Unit
 ) {
@@ -195,7 +196,10 @@ class PanelWindow(
             setStroke((density).toInt().coerceAtLeast(1), strokeColor())
         }
 
-        val content = PanelContentView(service).apply { setLayers(initialLayers) }
+        val content = PanelContentView(service).apply {
+            setLayers(initialLayers)
+            onLayersChanged = { changed -> onLayersPersist(changed) }
+        }
         val contentLp = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
@@ -278,6 +282,7 @@ class PanelWindow(
         titleView = null
         minimizeView = null
         closeView = null
+        resetView = null
     }
 
     /** 把内容相机恢复到左上角 1:1 */
@@ -315,12 +320,18 @@ class PanelWindow(
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), 0, 0, 0)
         }
+        val reset = barButton(R.drawable.ic_panel_reset, inkColor()) {
+            resetContentCamera()
+            contentView?.alignBackgroundToViewport()
+        }
         val minimize = barButton(R.drawable.ic_panel_minimize, inkColor()) { collapseToBall() }
         val close = barButton(R.drawable.ic_panel_close, Color.argb(255, 220, 80, 80)) { onClose() }
 
         barView.addView(title, FrameLayout.LayoutParams(controlSizePx, controlSizePx))
+        barView.addView(reset, FrameLayout.LayoutParams(controlSizePx, controlSizePx))
         barView.addView(minimize, FrameLayout.LayoutParams(controlSizePx, controlSizePx))
         barView.addView(close, FrameLayout.LayoutParams(controlSizePx, controlSizePx))
+        resetView = reset
 
         titleView = title
         minimizeView = minimize
@@ -498,6 +509,13 @@ class PanelWindow(
         removeBallWindow()
         expanded = true
         showPanelWindow(geometry)
+        // 视窗里什么都没有, 而层都还在初始位置: 说明是相机被拖走了, 展开时归位
+        contentView?.let { view ->
+            if (view.nothingVisible() && view.allLayersAtOrigin()) {
+                view.resetCamera()
+                view.alignBackgroundToViewport()
+            }
+        }
         commit()
     }
 
