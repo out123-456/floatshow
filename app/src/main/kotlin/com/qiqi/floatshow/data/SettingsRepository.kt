@@ -77,6 +77,58 @@ class SettingsRepository(context: Context) {
         get() = prefs.getInt(KEY_PANEL_Y, UNSET_POSITION)
         set(v) = prefs.edit { putInt(KEY_PANEL_Y, v) }
 
+    /** 展开态尺寸(px), 0 表示还没设置过, 由服务按屏幕折算默认值 */
+    var panelWidthPx: Int
+        get() = prefs.getInt(KEY_PANEL_WIDTH, 0)
+        set(v) = prefs.edit { putInt(KEY_PANEL_WIDTH, v) }
+
+    var panelHeightPx: Int
+        get() = prefs.getInt(KEY_PANEL_HEIGHT, 0)
+        set(v) = prefs.edit { putInt(KEY_PANEL_HEIGHT, v) }
+
+    /** 悬浮球左上角坐标(px). 与面板位置分开存, 否则收成球会把面板几何覆盖掉 */
+    var panelBallX: Int
+        get() = prefs.getInt(KEY_PANEL_BALL_X, UNSET_POSITION)
+        set(v) = prefs.edit { putInt(KEY_PANEL_BALL_X, v) }
+
+    var panelBallY: Int
+        get() = prefs.getInt(KEY_PANEL_BALL_Y, UNSET_POSITION)
+        set(v) = prefs.edit { putInt(KEY_PANEL_BALL_Y, v) }
+
+    /** 每加一就让面板把内容相机复位一次(主界面"重置位置"用) */
+    var panelResetCameraToken: Int
+        get() = prefs.getInt(KEY_PANEL_RESET_CAMERA, 0)
+        set(v) = prefs.edit { putInt(KEY_PANEL_RESET_CAMERA, v) }
+
+    var panelExpanded: Boolean
+        get() = prefs.getBoolean(KEY_PANEL_EXPANDED, false)
+        set(v) = prefs.edit { putBoolean(KEY_PANEL_EXPANDED, v) }
+
+    var panelToolbarAtBottom: Boolean
+        get() = prefs.getBoolean(KEY_PANEL_TOOLBAR_BOTTOM, false)
+        set(v) = prefs.edit { putBoolean(KEY_PANEL_TOOLBAR_BOTTOM, v) }
+
+    // ── 面板内容层 ─────────────────────────────────────────
+    /** 列表顺序即层级: 第 0 项最底(背景层), 越往后越靠上. 空列表表示面板还没有内容 */
+    var panelLayers: List<PanelLayer>
+        get() = PanelLayer.listFromJson(prefs.getString(KEY_PANEL_LAYERS, null))
+        set(v) = prefs.edit { putString(KEY_PANEL_LAYERS, PanelLayer.listToJson(v)) }
+
+    /** 导入的字体文件(content:// uri)`,未导入时为 null, 用系统默认字体 */
+    var panelFontUri: String?
+        get() = prefs.getString(KEY_PANEL_FONT_URI, null)
+        set(v) = prefs.edit { putString(KEY_PANEL_FONT_URI, v) }
+
+    /** 字体文件的显示名, 只用于设置页展示 */
+    var panelFontName: String?
+        get() = prefs.getString(KEY_PANEL_FONT_NAME, null)
+        set(v) = prefs.edit { putString(KEY_PANEL_FONT_NAME, v) }
+
+    /** 一次写入多项, 只触发一次监听回调 */
+    fun editing(block: android.content.SharedPreferences.Editor.() -> Unit) {
+        prefs.edit().apply(block).apply()
+    }
+
     /** 任一层可见时服务就应存活 */
     val anyOverlayEnabled: Boolean
         get() = crosshairEnabled || panelEnabled
@@ -110,5 +162,23 @@ class SettingsRepository(context: Context) {
         const val KEY_PANEL_ENABLED = "panel_enabled"
         const val KEY_PANEL_X = "panel_x"
         const val KEY_PANEL_Y = "panel_y"
+        const val KEY_PANEL_BALL_X = "panel_ball_x"
+        const val KEY_PANEL_BALL_Y = "panel_ball_y"
+        const val KEY_PANEL_WIDTH = "panel_width_px"
+        const val KEY_PANEL_HEIGHT = "panel_height_px"
+        const val KEY_PANEL_RESET_CAMERA = "panel_reset_camera"
+        const val KEY_PANEL_EXPANDED = "panel_expanded"
+        const val KEY_PANEL_TOOLBAR_BOTTOM = "panel_toolbar_bottom"
+        const val KEY_PANEL_LAYERS = "panel_layers_json"
+        const val KEY_PANEL_FONT_URI = "panel_font_uri"
+        const val KEY_PANEL_FONT_NAME = "panel_font_name"
+        const val DEFAULT_PANEL_WIDTH_DP = 280
+        const val DEFAULT_PANEL_HEIGHT_DP = 220
+        /** 收缩态圆球直径 */
+        const val PANEL_BALL_SIZE_DP = 40
+        /** 最小化/关闭按钮的方形触发区, 也是工具栏高度 */
+        const val PANEL_CONTROL_SIZE_DP = 40
+        /** 面板最小宽高就是球本身 */
+        const val MIN_PANEL_SIZE_DP = 40
     }
 }

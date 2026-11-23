@@ -19,6 +19,7 @@ captures/
 *.aab
 
 # 签名
+keystore.properties
 *.jks
 *.keystore
 
