@@ -30,10 +30,10 @@
     <string name="crosshair_offset_y">垂直偏移</string>
     <string name="crosshair_alpha">不透明度</string>
     <string name="crosshair_notch">刘海模式</string>
-    <string name="crosshair_notch_desc">把状态栏区域也算进垂直居中</string>
+    <string name="crosshair_notch_desc">以整块屏幕为基准居中, 不扣掉挖孔</string>
 
     <string name="section_panel">悬浮面板</string>
-    <string name="section_panel_desc">可拖动的内容面板，拖标题栏移动，右上角关闭</string>
+    <string name="section_panel_desc">可拖动的内容面板, 拖动工具栏移动, 四角缩放</string>
     <string name="panel_import_background">导入背景层</string>
     <string name="panel_import_overlay">导入叠加层</string>
     <string name="panel_import_kind_title">导入哪一类内容</string>
@@ -66,7 +66,7 @@
     <string name="panel_layer_info_loading">读取中…</string>
     <string name="panel_layer_info_failed">读不出来, 建议删除或替换</string>
     <string name="panel_layer_edit_hint">这一层的内容</string>
-    <string name="panel_svg_scale">尺寸倍数 %1$s</string>
+    <string name="panel_svg_scale">尺寸 %1$s</string>
     <string name="panel_svg_scale_x">%1$dx</string>
 
     <string name="tile_label">准星开关</string>

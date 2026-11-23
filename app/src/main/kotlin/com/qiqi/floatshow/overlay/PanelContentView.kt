@@ -193,7 +193,7 @@ class PanelContentView(context: Context) : View(context) {
         super.onDraw(canvas)
         visibleIds.clear()
         val roots = PanelLayers.renderOrder(PanelLayers.roots(layers))
-        val abs = absolutePositions()
+        val abs = PanelLayers.absolutePositions(layers)
         canvas.save()
         canvas.translate(contentOffsetX, contentOffsetY)
         canvas.scale(contentScale, contentScale)
@@ -208,27 +208,6 @@ class PanelContentView(context: Context) : View(context) {
         }
         canvas.restore()
         PanelVisibility.set(layers.map { it.id }.toSet() - visibleIds)
-    }
-
-    /**
-     * 每层的绝对位置: 锚点原点 + 自己的偏移. 锚点原点就是创建者的绝对位置.
-     * 按依赖顺序推进(n 轮上限), 不递归 —— 层数很少, 这个代价远低于每帧建矩阵.
-     */
-    private fun absolutePositions(): Map<String, Pair<Int, Int>> {
-        val abs = HashMap<String, Pair<Int, Int>>()
-        // 锚点是面板的层, 偏移就是绝对位置
-        for (layer in layers) {
-            if (layer.anchorId == null) abs[layer.id] = layer.x to layer.y
-        }
-        var round = 0
-        while (abs.size < layers.size && round++ <= layers.size) {
-            for (layer in layers) {
-                if (layer.id in abs) continue
-                val origin = abs[layer.anchorId] ?: continue
-                abs[layer.id] = origin.first + layer.x to origin.second + layer.y
-            }
-        }
-        return abs
     }
 
     private val visibleIds = HashSet<String>()

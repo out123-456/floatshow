@@ -254,12 +254,65 @@ object PanelLayers {
     /** 锚点层: anchorId 为 null 的那些(它们的锚点是面板) */
     fun roots(layers: List<PanelLayer>): List<PanelLayer> = layers.filter { it.anchorId == null }
 
+    /**
+     * 把 [id] 挂到 [targetId] 上(传 null 表示锚点是面板).
+     *
+     * 迁移事件: 先按旧结构算出每层绝对位置, 然后把 [id] 及其后的所有层整体换锚点,
+     * 偏移按"新原点"重算 —— 画面一像素都不动, 之后跟着新锚点走.
+     * 之所以要把后代一起迁走: 换锚点后 [id] 自己不再是锚点, 挂在它上面的层必须跟着转,
+     * 否则它们会指向一个已经不属于锚点集合的层.
+     */
     fun setAnchor(layers: List<PanelLayer>, id: String, targetId: String?): List<PanelLayer> {
         if (!canAnchor(layers, id, targetId)) return layers
-        return layers.map {
-            if (it.id != id) it
-            else it.copy(anchorId = targetId, fixed = true)
+        val absolute = absolutePositions(layers)
+        val originX = if (targetId == null) 0 else absolute[targetId]?.first ?: 0
+        val originY = if (targetId == null) 0 else absolute[targetId]?.second ?: 0
+        val moved = subtreeIds(layers, id)
+        return layers.map { layer ->
+            if (layer.id !in moved) layer
+            else {
+                val abs = absolute[layer.id] ?: (0 to 0)
+                layer.copy(
+                    anchorId = targetId,
+                    x = abs.first - originX,
+                    y = abs.second - originY,
+                    fixed = true
+                )
+            }
         }
+    }
+
+    /** [id] 自身 + 所有直接或间接挂在它上面的层 */
+    fun subtreeIds(layers: List<PanelLayer>, id: String): Set<String> {
+        val out = LinkedHashSet<String>()
+        out += id
+        var changed = true
+        while (changed) {
+            changed = false
+            for (layer in layers) {
+                val parent = layer.anchorId ?: continue
+                if (parent in out && layer.id !in out) {
+                    out += layer.id
+                    changed = true
+                }
+            }
+        }
+        return out
+    }
+
+    /** 每层的绝对位置(相对面板), 沿锚点链累加. 上限轮数与层数相同, 足够处理最深链条 */
+    fun absolutePositions(layers: List<PanelLayer>): Map<String, Pair<Int, Int>> {
+        val abs = HashMap<String, Pair<Int, Int>>()
+        for (layer in layers) if (layer.anchorId == null) abs[layer.id] = layer.x to layer.y
+        var round = 0
+        while (abs.size < layers.size && round++ <= layers.size) {
+            for (layer in layers) {
+                if (layer.id in abs) continue
+                val origin = abs[layer.anchorId] ?: continue
+                abs[layer.id] = origin.first + layer.x to origin.second + layer.y
+            }
+        }
+        return abs
     }
 
     fun clearAnchor(layers: List<PanelLayer>, id: String): List<PanelLayer> =
