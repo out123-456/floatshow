@@ -215,6 +215,83 @@ private fun LayerRow(
 }
 
 /**
+ * 固定: 短按在"锚点=面板"与自由之间切换; 长按弹菜单选一个层作锚点(相对固定).
+ * 会成环的候选(自己与自己后代)直接不列出, 不需要灰态.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FixedAction(
+    layer: PanelLayer,
+    layers: List<PanelLayer>,
+    onToggleFixed: () -> Unit,
+    onSetAnchor: (String?) -> Unit
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .combinedClickable(
+                    onClick = onToggleFixed,
+                    onLongClick = { open = true }
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.PushPin,
+                contentDescription = stringResource(R.string.panel_layer_fixed),
+                modifier = Modifier.size(20.dp),
+                tint = if (layer.fixed) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            Column(modifier = Modifier.padding(horizontal = 8.dp)) {
+                Text(
+                    text = stringResource(R.string.panel_anchor_title),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(8.dp)
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.panel_anchor_panel)) },
+                    onClick = {
+                        open = false
+                        onSetAnchor(null)
+                    }
+                )
+                // 会成环的候选不列出: 自己与自己后代
+                layers.filter { other ->
+                    other.id != layer.id && PanelLayers.canAnchor(layers, layer.id, other.id)
+                }.forEach { other ->
+                    DropdownMenuItem(
+                        text = { Text(other.name) },
+                        onClick = {
+                            open = false
+                            onSetAnchor(other.id)
+                        }
+                    )
+                }
+                if (layer.anchorId != null) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = stringResource(R.string.panel_anchor_clear),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        },
+                        onClick = {
+                            open = false
+                            onSetAnchor(null)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
  * 更多: 点开一个浮动面板, 里面是这一层的预处理与删除.
  * 删除放在最下面且是错误色, 需要二次确认.
  * 固定(锚点为面板)的层不能预处理, 对应的控件直接不出现.
