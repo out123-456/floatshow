@@ -185,4 +185,5 @@
     <string name="panel_reset_confirm_anchor">重置位置将会导致固定层级跟随重置, 确定吗?</string>
     <string name="panel_reset_confirm_plain">重置位置将会导致层级位置重置, 确定吗?</string>
     <string name="action_ok">好的</string>
+    <string name="panel_reset_blocked">该层级跟随父层级, 无法重置位置</string>
 </resources>

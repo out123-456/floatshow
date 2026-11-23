@@ -63,6 +63,8 @@ fun LayerSheet(
     onResetPosition: (() -> Unit)? = null,
     /** 这一层下面挂着别的层; 位置变动会带着它们一起动 */
     hasChildren: Boolean = false,
+    /** 这一层自己有父层级; 此时位置由锚点算出, 不能重置 */
+    hasParent: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var svgScale by remember(layer.id) { mutableStateOf(1f) }
@@ -132,10 +134,24 @@ fun LayerSheet(
 
             // 内容被拖出视窗后的兜底入口.
             // 按钮永远在: "有时有有时没有"在用户看来就是功能坏了.
-            // 位置操作一律二次确认 —— 它和手动拖到初始点等价, 只是省事
+            // 有父层级时不能重置(位置由锚点算出来), 点了就说明原因, 而不是把按钮藏掉
             var resetConfirm by remember(layer.id) { mutableStateOf(false) }
-            TextButton(onClick = { resetConfirm = true }) {
+            var resetBlocked by remember(layer.id) { mutableStateOf(false) }
+            TextButton(onClick = {
+                if (hasParent) resetBlocked = true else resetConfirm = true
+            }) {
                 Text(stringResource(R.string.panel_layer_reset_position))
+            }
+            if (resetBlocked) {
+                AlertDialog(
+                    onDismissRequest = { resetBlocked = false },
+                    text = { Text(stringResource(R.string.panel_reset_blocked)) },
+                    confirmButton = {
+                        TextButton(onClick = { resetBlocked = false }) {
+                            Text(stringResource(R.string.action_ok))
+                        }
+                    }
+                )
             }
             if (resetConfirm) {
                 AlertDialog(

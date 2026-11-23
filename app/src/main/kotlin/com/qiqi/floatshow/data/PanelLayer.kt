@@ -242,6 +242,8 @@ object PanelLayers {
      */
     fun resetPosition(layers: List<PanelLayer>, id: String): List<PanelLayer> {
         val target = layers.firstOrNull { it.id == id } ?: return layers
+        // 有父层时位置由锚点算出, 重置它没有意义
+        if (target.anchorId != null) return layers
         val dx = -target.x
         val dy = -target.y
         // 它自己创建的锚点跟着挪, 并把位移广播给挂在它上面的层
