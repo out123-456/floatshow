@@ -193,7 +193,7 @@ class PanelContentView(context: Context) : View(context) {
         super.onDraw(canvas)
         visibleIds.clear()
         val roots = PanelLayers.renderOrder(PanelLayers.roots(layers))
-        val anchorOrigins = anchorOrigins()
+        val abs = absolutePositions()
         canvas.save()
         canvas.translate(contentOffsetX, contentOffsetY)
         canvas.scale(contentScale, contentScale)
@@ -202,22 +202,33 @@ class PanelContentView(context: Context) : View(context) {
         // 再画挂在别人锚点上的层: 位置由自己那份偏移给出
         for (layer in layers) {
             if (layer.anchorId == null) continue
-            val origin = anchorOrigins[layer.anchorId] ?: continue
-            drawFlat(canvas, layer, origin.x.toFloat(), origin.y.toFloat())
+            // 锚点原点就是创建者的绝对位置
+            val origin = abs[layer.anchorId] ?: continue
+            drawFlat(canvas, layer, origin.first.toFloat(), origin.second.toFloat())
         }
         canvas.restore()
         PanelVisibility.set(layers.map { it.id }.toSet() - visibleIds)
     }
 
-    /** 锚点原点表: 每个锚点所属层用自己的绝对位置定义原点 */
-    private fun anchorOrigins(): Map<String, Pair<Int, Int>> {
-        val out = HashMap<String, Pair<Int, Int>>()
+    /**
+     * 每层的绝对位置: 锚点原点 + 自己的偏移. 锚点原点就是创建者的绝对位置.
+     * 按依赖顺序推进(n 轮上限), 不递归 —— 层数很少, 这个代价远低于每帧建矩阵.
+     */
+    private fun absolutePositions(): Map<String, Pair<Int, Int>> {
+        val abs = HashMap<String, Pair<Int, Int>>()
+        // 锚点是面板的层, 偏移就是绝对位置
         for (layer in layers) {
-            val x = layer.x
-            val y = layer.y
-            out[layer.id] = x to y
+            if (layer.anchorId == null) abs[layer.id] = layer.x to layer.y
         }
-        return out
+        var round = 0
+        while (abs.size < layers.size && round++ <= layers.size) {
+            for (layer in layers) {
+                if (layer.id in abs) continue
+                val origin = abs[layer.anchorId] ?: continue
+                abs[layer.id] = origin.first + layer.x to origin.second + layer.y
+            }
+        }
+        return abs
     }
 
     private val visibleIds = HashSet<String>()
@@ -449,13 +460,9 @@ class PanelContentView(context: Context) : View(context) {
     // ── 文本 ────────────────────────────────────────────────
 
     private fun drawText(canvas: Canvas, layer: PanelLayer) {
+        // drawFlat 已经把 canvas 变换到层的左上角, 这里只画内容
         val layout = layoutFor(layer) ?: return
-        canvas.save()
-        canvas.translate(layer.x.toFloat(), layer.y.toFloat())
-        canvas.rotate(layer.rotation.toFloat() * 90f)
-        if (layer.mirrored) canvas.scale(-1f, 1f, layout.width / 2f, layout.height / 2f)
         layout.draw(canvas)
-        canvas.restore()
     }
 
     private fun layoutFor(layer: PanelLayer): StaticLayout? {
