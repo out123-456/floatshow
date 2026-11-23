@@ -150,9 +150,6 @@ object PanelLayers {
     fun resize(layers: List<PanelLayer>, id: String, w: Int, h: Int): List<PanelLayer> =
         layers.map { if (it.id == id) it.copy(width = w, height = h) else it }
 
-    fun move(layers: List<PanelLayer>, id: String, x: Int, y: Int): List<PanelLayer> =
-        layers.map { if (it.id == id) it.copy(x = x, y = y) else it }
-
     /** 该层现在能不能置顶: 已置底的层不能, 已经有别的层置顶时也不能; 已置顶时允许再次点击取消 */
     fun canPinTop(layers: List<PanelLayer>, id: String): Boolean {
         val layer = layers.firstOrNull { it.id == id } ?: return false
@@ -206,6 +203,53 @@ object PanelLayers {
     /** 某个层的直接子层 */
     fun childrenOf(layers: List<PanelLayer>, id: String): List<PanelLayer> =
         layers.filter { it.anchorId == id }
+
+    /**
+     * 移动一个锚点是面板的层. 它创建的锚点(如果有子层挂在上面)原点跟着走,
+     * 锚点自己负责把位移广播给订阅者; 创建者只发这一次, 不去遍历子层.
+     *
+     * 返回新的列表; 锚点是面板的层(没有创建锚点)直接跳过, 一个事件都不发.
+     */
+    fun move(layers: List<PanelLayer>, id: String, x: Int, y: Int): List<PanelLayer> {
+        val target = layers.firstOrNull { it.id == id } ?: return layers
+        if (target.anchorId != null) {
+            // 有父层: 偏移是相对锚点的, 移动它没有意义
+            return layers
+        }
+        val dx = x - target.x
+        val dy = y - target.y
+        moveAnchor(layers, id, dx, dy)
+        return layers.map { if (it.id == id) it.copy(x = x, y = y) else it }
+    }
+
+    /**
+     * 锚点 [anchorId] 的创建者移动了 (dx, dy), 把位移广播给所有订阅者.
+     * 一次性重算, 没有递归: 订阅者之间互不影响.
+     */
+    fun moveAnchor(layers: List<PanelLayer>, anchorId: String, dx: Int, dy: Int): List<PanelLayer> {
+        if (dx == 0 && dy == 0) return layers
+        val subscribers = layers.filter { it.anchorId == anchorId }
+        if (subscribers.isEmpty()) return layers
+        return layers.map { layer ->
+            if (layer.anchorId != anchorId) layer
+            else layer.copy(x = layer.x + dx, y = layer.y + dy)
+        }
+    }
+
+    /**
+     * 重置一个层自己的偏移: 回到它锚点的原点.
+     * 有父层的层不允许重置位置(它的偏移是相对锚点的, 一重置就会跳)。
+     */
+    fun resetPosition(layers: List<PanelLayer>, id: String): List<PanelLayer> {
+        val target = layers.firstOrNull { it.id == id } ?: return layers
+        if (target.anchorId != null) return layers
+        val dx = -target.x
+        val dy = -target.y
+        moveAnchor(layers, id, dx, dy)
+        return layers.map {
+            if (it.id == id) it.copy(x = 0, y = 0) else it
+        }
+    }
 
     /** 锚点层: anchorId 为 null 的那些(它们的锚点是面板) */
     fun roots(layers: List<PanelLayer>): List<PanelLayer> = layers.filter { it.anchorId == null }

@@ -143,11 +143,12 @@ class PanelContentView(context: Context) : View(context) {
         return true
     }
 
-    /** 屏幕点是否落在某个固定/锚定层的矩形里(按当前相机反变换) */
+    /**
+     * 触摸候选只包括"锚点是面板且固定"的层.
+     * 有父层的层跳过整段检测 —— 它们的偏移是相对锚点的, 拖动它们没有意义, 也就不必进入命中测试.
+     */
     private fun hitFixedLayer(screenX: Float, screenY: Float): Boolean {
-        // 固定(锚点=面板) 与 有父层 的层都不可触摸:
-        // 有父层 -> 位置由父层算出来, 拖它没有意义, 也无法缩放
-        val fixedLayers = layers.filter { it.fixed || it.anchorId != null }
+        val fixedLayers = layers.filter { it.anchorId == null && it.fixed }
         if (fixedLayers.isEmpty()) return false
         val inverse = Matrix()
         val forward = Matrix()
@@ -184,30 +185,53 @@ class PanelContentView(context: Context) : View(context) {
         return if (layer.rotation % 2 == 1) w else h
     }
 
+    /**
+     * 每层的位置 = 锚点原点 + 自己的偏移, 各自独立算, 没有递归.
+     * 这也是唯一能"并行分发、不用递归"的画法: 谁都不依赖别人的变换矩阵.
+     */
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        // 每帧记录哪些层真的落在视窗里, 画完统一报给主界面
         visibleIds.clear()
-        // 只有"锚点是面板"的层是根; 子层在父层的坐标系里画
-        val order = PanelLayers.renderOrder(PanelLayers.roots(layers))
+        val roots = PanelLayers.renderOrder(PanelLayers.roots(layers))
+        val anchorOrigins = anchorOrigins()
         canvas.save()
         canvas.translate(contentOffsetX, contentOffsetY)
         canvas.scale(contentScale, contentScale)
-        for (layer in order) drawTree(canvas, layer)
+        // 先画锚点是面板的层(这些层不订阅任何事件, 位置恒定)
+        for (layer in roots) drawFlat(canvas, layer, 0f, 0f)
+        // 再画挂在别人锚点上的层: 位置由自己那份偏移给出
+        for (layer in layers) {
+            if (layer.anchorId == null) continue
+            val origin = anchorOrigins[layer.anchorId] ?: continue
+            drawFlat(canvas, layer, origin.x.toFloat(), origin.y.toFloat())
+        }
         canvas.restore()
         PanelVisibility.set(layers.map { it.id }.toSet() - visibleIds)
+    }
+
+    /** 锚点原点表: 每个锚点所属层用自己的绝对位置定义原点 */
+    private fun anchorOrigins(): Map<String, Pair<Int, Int>> {
+        val out = HashMap<String, Pair<Int, Int>>()
+        for (layer in layers) {
+            val x = layer.x
+            val y = layer.y
+            out[layer.id] = x to y
+        }
+        return out
     }
 
     private val visibleIds = HashSet<String>()
 
     /**
-     * 画一层, 再把它的子层画在同一坐标系里.
-     * 变换原点固定在这一层的左上角(不是中心), 这样上下左右相邻的层不会因为旋转而互相穿插.
+     * 画一层. 变换只绕这一层自己的左上角, 不继承任何父层的矩阵:
+     * 预处理是"任何层级皆可单独处理", 如果继承父层旋转, 坐标系的相对位置会被算错.
      */
-    private fun drawTree(canvas: Canvas, layer: PanelLayer) {
+    private fun drawFlat(canvas: Canvas, layer: PanelLayer, originX: Float, originY: Float) {
         val (w, h) = layerSize(layer)
         if (w <= 0f || h <= 0f) return
-        // 先镜像(绕内容盒子的垂直中线, 保证内容留在盒内), 再绕左上角旋转, 最后平移到层的位置
+        val x = originX + layer.x
+        val y = originY + layer.y
+        // 镜像绕内容盒子的垂直中线(内容留在盒内), 再绕左上角旋转, 最后落在 (x, y)
         val m = Matrix()
         if (layer.mirrored) {
             m.setScale(-1f, 1f)
@@ -216,11 +240,11 @@ class PanelContentView(context: Context) : View(context) {
         m.postRotate(layer.rotation.toFloat() * 90f, 0f, 0f)
         val box = RectF(0f, 0f, w, h)
         m.mapRect(box)
-        m.postTranslate(layer.x - box.left, layer.y - box.top)
+        // 旋转后把内容整体挪回 (x, y) 起算的包围盒里
+        m.postTranslate(x - box.left, y - box.top)
 
         canvas.save()
         canvas.concat(m)
-        // 可见性: 变换后的包围盒与视窗相交就算可见
         val screen = RectF(0f, 0f, w, h)
         m.mapRect(screen)
         val abs = Matrix()
@@ -231,47 +255,11 @@ class PanelContentView(context: Context) : View(context) {
         ) {
             visibleIds += layer.id
         }
-
         when (layer.kind) {
             PanelLayerKind.IMAGE -> drawImage(canvas, layer, w, h)
             PanelLayerKind.TEXT -> drawText(canvas, layer)
         }
-        for (child in PanelLayers.childrenOf(layers, layer.id)) {
-            drawTree(canvas, child)
-        }
         canvas.restore()
-    }
-
-    /**
-     * 层在屏幕上的包围盒完全落在视窗之外时, 记进 [PanelVisibility], 让主界面把种类图标标红.
-     * 这是"用户自己把内容拖丢了"的唯一提示.
-     */
-    private fun reportVisibility(canvas: Canvas) {
-        val visible = HashSet<String>()
-        val m = Matrix()
-        canvas.getMatrix(m)
-        val pts = FloatArray(8)
-        for (layer in layers) {
-            val w = layerBoxWidth(layer)
-            val h = layerBoxHeight(layer)
-            if (w <= 0f || h <= 0f) continue
-            val lx = layer.x.toFloat()
-            val ly = layer.y.toFloat()
-            pts[0] = lx; pts[1] = ly
-            pts[2] = lx + w; pts[3] = ly
-            pts[4] = lx; pts[5] = ly + h
-            pts[6] = lx + w; pts[7] = ly + h
-            m.mapPoints(pts)
-            val minX = minOf(pts[0], pts[2], pts[4], pts[6])
-            val maxX = maxOf(pts[0], pts[2], pts[4], pts[6])
-            val minY = minOf(pts[1], pts[3], pts[5], pts[7])
-            val maxY = maxOf(pts[1], pts[3], pts[5], pts[7])
-            if (maxX > 0f && minX < getWidth() && maxY > 0f && minY < getHeight()) {
-                visible += layer.id
-            }
-        }
-        val invisible = layers.map { it.id }.toSet() - visible
-        PanelVisibility.set(invisible)
     }
 
     // ── 位图 ────────────────────────────────────────────────
@@ -284,24 +272,17 @@ class PanelContentView(context: Context) : View(context) {
         if (PanelContentSource.isSvg(context, uri)) {
             val picture = svgPicture(layer, uri)
             if (picture != null) canvas.drawPicture(picture, RectF(0f, 0f, w, h))
-            canvas.restore()
             return
         }
 
         // 把屏幕视口反变换回"层的本地坐标", 得到这一帧真正要画的那一块
         val screenRect = RectF(0f, 0f, getWidth().toFloat(), getHeight().toFloat())
         val inverse = Matrix()
-        if (!canvas.matrix.invert(inverse)) {
-            canvas.restore()
-            return
-        }
+        if (!canvas.matrix.invert(inverse)) return
         val local = RectF()
         inverse.mapRect(local, screenRect)
         val clipped = RectF(0f, 0f, w, h)
-        if (!clipped.intersect(local) || clipped.isEmpty) {
-            canvas.restore()
-            return
-        }
+        if (!clipped.intersect(local) || clipped.isEmpty) return
 
         // 落到原图坐标
         val scaleX = natural.first / w
@@ -312,10 +293,7 @@ class PanelContentView(context: Context) : View(context) {
             (clipped.right * scaleX).toInt().coerceIn(1, natural.first.toInt()),
             (clipped.bottom * scaleY).toInt().coerceIn(1, natural.second.toInt())
         )
-        if (srcRect.width() <= 0 || srcRect.height() <= 0) {
-            canvas.restore()
-            return
-        }
+        if (srcRect.width() <= 0 || srcRect.height() <= 0) return
 
         // 采样步长按"这块在屏幕上占多少像素"决定
         val pixels = canvas.matrix.mapRadius(1f)
@@ -328,10 +306,7 @@ class PanelContentView(context: Context) : View(context) {
         val entry = imageWindow(layer, uri, win, step)
         val fallback = lastEntry[layer.id]
         val use = entry ?: fallback
-        if (use == null || use.bitmap.isRecycled) {
-            canvas.restore()
-            return
-        }
+        if (use == null || use.bitmap.isRecycled) return
         // 把 srcRect 在窗口里的位置换算成位图里的取样矩形
         val inBmp = Rect(
             (srcRect.left - win.left) / step,
@@ -341,7 +316,6 @@ class PanelContentView(context: Context) : View(context) {
         )
         imagePaint.isFilterBitmap = true
         canvas.drawBitmap(use.bitmap, inBmp, clipped, imagePaint)
-        canvas.restore()
     }
 
     /** 缓存里按层记一块已解好的像素, 换窗口前先用它顶着, 不闪 */
