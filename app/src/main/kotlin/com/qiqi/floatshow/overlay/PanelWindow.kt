@@ -111,6 +111,7 @@ class PanelWindow(
     private var titleView: TextView? = null
     private var minimizeView: ImageView? = null
     private var closeView: ImageView? = null
+    private var resetView: ImageView? = null
 
     private val cornerGrips = mutableListOf<View>()
     private val edgeGrips = mutableListOf<View>()
